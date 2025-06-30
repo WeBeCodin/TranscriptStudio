@@ -66,7 +66,7 @@ export default function Home() {
 
       // Step 2: Suggest hotspots
       setProcessingStatus('Analyzing for hotspots...');
-      const fullTranscriptText = transcriptResult.data.segments.map(s => s.words.map(w => w.text).join(' ')).join('\n');
+      const fullTranscriptText = transcriptResult.data.words.map(w => w.text).join(' ');
       const hotspotsResult = await suggestHotspotsAction({ transcript: fullTranscriptText });
       
       if (!hotspotsResult.success || !hotspotsResult.data) {

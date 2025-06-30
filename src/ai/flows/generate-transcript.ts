@@ -30,12 +30,8 @@ const WordSchema = z.object({
   speaker: z.number().optional().describe('Speaker ID (e.g., 0, 1).'),
 });
 
-const TranscriptSegmentSchema = z.object({
-  words: z.array(WordSchema).describe('An array of word objects.'),
-});
-
 const GenerateTranscriptOutputSchema = z.object({
-  segments: z.array(TranscriptSegmentSchema).describe('An array of transcript segments.'),
+  words: z.array(WordSchema).describe('An array of word objects with timestamps.'),
 });
 
 export type GenerateTranscriptOutput = z.infer<typeof GenerateTranscriptOutputSchema>;
@@ -51,7 +47,7 @@ const generateTranscriptPrompt = ai.definePrompt({
   output: {schema: GenerateTranscriptOutputSchema},
   prompt: `You are an expert transcriptionist specializing in generating transcripts from media files.
 
-You will use this information to generate a time-coded transcript of the media file.
+You will use this information to generate a time-coded transcript of the media file. The transcript should include word-level timestamps (start and end times in seconds) for each word. Your output MUST be a JSON object that conforms to the provided schema.
 
 Use the following as the primary source of information about the media.
 

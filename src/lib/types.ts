@@ -1,7 +1,7 @@
 import type { GenerateTranscriptOutput } from '@/ai/flows/generate-transcript';
 import type { SuggestHotspotsOutput } from '@/ai/flows/suggest-hotspots';
 
-export type Word = GenerateTranscriptOutput['segments'][0]['words'][0];
+export type Word = GenerateTranscriptOutput['words'][0];
 export type Transcript = GenerateTranscriptOutput;
 export type Hotspot = SuggestHotspotsOutput[0];
 

@@ -38,8 +38,7 @@ export function Editor({ videoUrl, transcript, hotspots, brandOptions }: EditorP
 
 
   React.useEffect(() => {
-    const words = transcript.segments.flatMap(s => s.words);
-    setAllWords(words);
+    setAllWords(transcript.words);
   }, [transcript]);
   
   React.useEffect(() => {
