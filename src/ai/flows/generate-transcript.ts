@@ -1,5 +1,3 @@
-// Implemented Genkit flow for automatic transcript generation with word-level timestamps, enabling efficient video content repurposing.
-
 'use server';
 
 /**
@@ -45,13 +43,13 @@ const generateTranscriptPrompt = ai.definePrompt({
   model: 'googleai/gemini-1.5-flash',
   input: {schema: GenerateTranscriptInputSchema},
   output: {schema: GenerateTranscriptOutputSchema},
-  prompt: `You are an expert transcriptionist specializing in generating transcripts from media files.
+  prompt: `You are an expert transcriptionist. Your task is to generate a precise, time-coded transcript from the provided media file.
 
-You will use this information to generate a time-coded transcript of the media file. The transcript should include word-level timestamps (start and end times in seconds) for each word. Your output MUST be a JSON object that conforms to the provided schema.
+The output must be a JSON object that strictly conforms to the provided schema. The root of the object must be a key named "words", which contains an array of word objects. Each word object in the array must have three properties: "text" (the transcribed word as a string), "start" (the start time in seconds), and "end" (the end time in seconds).
 
-Use the following as the primary source of information about the media.
+Example of a single word object: { "text": "Hello", "start": 0.5, "end": 0.9 }
 
-Media: {{media url=mediaDataUri}}`,
+Media for transcription: {{media url=mediaDataUri}}`,
 });
 
 const generateTranscriptFlow = ai.defineFlow(
