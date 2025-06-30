@@ -46,7 +46,7 @@ export async function generateTranscript(input: GenerateTranscriptInput): Promis
 
 const generateTranscriptPrompt = ai.definePrompt({
   name: 'generateTranscriptPrompt',
-  model: 'googleai/gemini-1.5-pro',
+  model: 'googleai/gemini-1.5-flash',
   input: {schema: GenerateTranscriptInputSchema},
   output: {schema: GenerateTranscriptOutputSchema},
   prompt: `You are an expert transcriptionist specializing in generating transcripts from media files.
