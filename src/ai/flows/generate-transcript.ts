@@ -45,7 +45,9 @@ const generateTranscriptPrompt = ai.definePrompt({
   output: {schema: GenerateTranscriptOutputSchema},
   prompt: `You are an expert transcriptionist. Your task is to generate a precise, time-coded transcript from the provided media file.
 
-The output must be a JSON object that strictly conforms to the provided schema. The root of the object must be a key named "words", which contains an array of word objects. Each word object in the array must have three properties: "text" (the transcribed word as a string), "start" (the start time in seconds), and "end" (the end time in seconds).
+IMPORTANT: The output must be ONLY a single JSON object that strictly conforms to the provided schema. Do not add any explanatory text before or after the JSON object. Do not wrap the JSON object in markdown backticks like \`\`\`json.
+
+The root of the object must be a key named "words", which contains an array of word objects. Each word object in the array must have three properties: "text" (the transcribed word as a string), "start" (the start time in seconds), and "end" (the end time in seconds).
 
 Example of a single word object: { "text": "Hello", "start": 0.5, "end": 0.9 }
 
