@@ -59,19 +59,8 @@ export default function Home() {
           },
           (error) => {
             console.error("Firebase Storage Error:", error);
-            let message = "Upload failed. Please try again.";
-            switch (error.code) {
-              case 'storage/unauthorized':
-                message = "Permission denied. Please check your Firebase Storage rules.";
-                break;
-              case 'storage/canceled':
-                message = "Upload was canceled.";
-                break;
-              case 'storage/unknown':
-                message = "An unknown error occurred. Please check your network and Firebase config.";
-                break;
-            }
-            reject(new Error(message));
+            // Reject with the original error so the catch block can display a more specific message
+            reject(error);
           },
           () => {
             const gcsPath = `gs://${uploadTask.snapshot.ref.bucket}/${uploadTask.snapshot.ref.fullPath}`;
