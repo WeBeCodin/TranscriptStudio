@@ -12,11 +12,12 @@ import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
 const GenerateTranscriptInputSchema = z.object({
-  mediaDataUri: z
-    .string()
-    .describe(
-      "A video or audio file, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
-    ),
+  media: z.object({
+    bytes: z.instanceof(Buffer),
+    mimeType: z.string(),
+  }).describe(
+    'A video or audio file represented by its raw bytes and MIME type.'
+  ),
 });
 
 export type GenerateTranscriptInput = z.infer<typeof GenerateTranscriptInputSchema>;
@@ -38,23 +39,6 @@ export async function generateTranscript(input: GenerateTranscriptInput): Promis
   return generateTranscriptFlow(input);
 }
 
-const generateTranscriptPrompt = ai.definePrompt({
-  name: 'generateTranscriptPrompt',
-  model: 'googleai/gemini-1.5-flash',
-  input: {schema: GenerateTranscriptInputSchema},
-  output: {
-    schema: GenerateTranscriptOutputSchema,
-    format: 'json',
-  },
-  prompt: `You are an expert transcriptionist. Your task is to generate a precise, time-coded transcript from the provided media file.
-
-Analyze the media file and return a structured transcript with an array of word objects. Each object must contain the word's text, and its start and end time in seconds.
-
-The output MUST be a valid JSON object that adheres to the provided schema. Do not include any markdown formatting like \`\`\`json.
-
-Media for transcription: {{media url=mediaDataUri}}`,
-});
-
 const generateTranscriptFlow = ai.defineFlow(
   {
     name: 'generateTranscriptFlow',
@@ -62,7 +46,22 @@ const generateTranscriptFlow = ai.defineFlow(
     outputSchema: GenerateTranscriptOutputSchema,
   },
   async input => {
-    const {output} = await generateTranscriptPrompt(input);
+    const {output} = await ai.generate({
+        model: 'googleai/gemini-1.5-flash',
+        prompt: [
+            { text: `You are an expert transcriptionist. Your task is to generate a precise, time-coded transcript from the provided media file.
+
+Analyze the media file and return a structured transcript with an array of word objects. Each object must contain the word's text, and its start and end time in seconds.
+
+The output MUST be a valid JSON object that adheres to the provided schema. Do not include any markdown formatting like \`\`\`json.` },
+            { media: { bytes: input.media.bytes, contentType: input.media.mimeType } }
+        ],
+        output: {
+            format: 'json',
+            schema: GenerateTranscriptOutputSchema,
+        }
+    });
+    
     if (!output) {
         throw new Error(
             'The AI model failed to generate a valid transcript. This might be due to an issue with the media file or a temporary model problem. Please try again with a different video.'

@@ -8,15 +8,6 @@ import { generateTranscriptAction, suggestHotspotsAction } from '@/app/actions';
 import type { BrandOptions, Hotspot, Transcript } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 
-const fileToDataUri = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-};
-
 export default function Home() {
   const [videoFile, setVideoFile] = React.useState<File | null>(null);
   const [videoUrl, setVideoUrl] = React.useState<string | null>(null);
@@ -49,11 +40,12 @@ export default function Home() {
     setIsProcessing(true);
 
     try {
-      // Step 1: Convert file to data URI and generate transcript
+      // Step 1: Upload file via FormData and generate transcript
       setProcessingStatus('Generating transcript...');
-      const mediaDataUri = await fileToDataUri(file);
+      const formData = new FormData();
+      formData.append('videoFile', file);
       
-      const transcriptResult = await generateTranscriptAction({ mediaDataUri });
+      const transcriptResult = await generateTranscriptAction(formData);
 
       if (!transcriptResult.success || !transcriptResult.data) {
         throw new Error(transcriptResult.error || 'Failed to generate transcript. Please ensure your API key is configured.');
