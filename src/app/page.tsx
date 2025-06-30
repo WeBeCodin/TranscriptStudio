@@ -4,7 +4,9 @@ import * as React from 'react';
 import { AppHeader } from '@/components/header';
 import { VideoUploader } from '@/components/video-uploader';
 import { Editor } from '@/components/editor';
-import { generateTranscriptAction, suggestHotspotsAction } from '@/app/actions';
+import { storage } from '@/lib/firebase';
+import { ref, uploadBytesResumable } from 'firebase/storage';
+import { generateTranscriptFromGcsAction, suggestHotspotsAction } from '@/app/actions';
 import type { BrandOptions, Hotspot, Transcript } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 
@@ -19,6 +21,7 @@ export default function Home() {
     primaryColor: '#3498DB',
     font: 'Inter',
   });
+  const [uploadProgress, setUploadProgress] = React.useState(0);
   
   const { toast } = useToast();
 
@@ -29,6 +32,7 @@ export default function Home() {
     setHotspots(null);
     setIsProcessing(false);
     setProcessingStatus('');
+    setUploadProgress(0);
   };
 
   const handleFileUpload = async (file: File) => {
@@ -40,52 +44,88 @@ export default function Home() {
     setIsProcessing(true);
 
     try {
-      // Step 1: Upload file via FormData and generate transcript
-      setProcessingStatus('Generating transcript...');
-      const formData = new FormData();
-      formData.append('videoFile', file);
-      
-      const transcriptResult = await generateTranscriptAction(formData);
+      // Step 1: Upload to Firebase Storage
+      setProcessingStatus(`Uploading video... 0%`);
+      const storageRef = ref(storage, `videos/${Date.now()}-${file.name}`);
+      const uploadTask = uploadBytesResumable(storageRef, file);
 
-      if (!transcriptResult.success || !transcriptResult.data) {
-        throw new Error(transcriptResult.error || 'Failed to generate transcript. Please ensure your API key is configured.');
-      }
-      setTranscript(transcriptResult.data);
-      toast({
-        title: "Transcript Generated",
-        description: "The transcript is ready for editing.",
-      });
+      uploadTask.on('state_changed',
+          (snapshot) => {
+              const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+              setUploadProgress(progress);
+              setProcessingStatus(`Uploading video... ${Math.round(progress)}%`);
+          },
+          (error) => {
+              // Firebase storage upload error
+              console.error('Upload failed:', error);
+              toast({
+                  variant: "destructive",
+                  title: "Upload Failed",
+                  description: `Could not upload to Firebase Storage. Please check your storage rules and Firebase configuration.`,
+              });
+              resetState();
+          },
+          async () => {
+              // Upload complete, now run Genkit flows
+              try {
+                  setUploadProgress(100);
+                  const gcsUri = `gs://${uploadTask.snapshot.ref.bucket}/${uploadTask.snapshot.ref.fullPath}`;
+                  
+                  // Step 2: Generate transcript from GCS URI
+                  setProcessingStatus('Generating transcript...');
+                  const transcriptResult = await generateTranscriptFromGcsAction({ gcsUri });
 
-      // Step 2: Suggest hotspots
-      setProcessingStatus('Analyzing for hotspots...');
-      const fullTranscriptText = transcriptResult.data.words.map(w => w.text).join(' ');
-      const hotspotsResult = await suggestHotspotsAction({ transcript: fullTranscriptText });
-      
-      if (!hotspotsResult.success || !hotspotsResult.data) {
-        // This is non-critical, so just warn and continue.
-        console.warn('Could not generate hotspots, but continuing.', hotspotsResult.error);
-        setHotspots([]);
-      } else {
-        setHotspots(hotspotsResult.data);
-        if (hotspotsResult.data.length > 0) {
-            toast({
-                title: "Hotspots Suggested",
-                description: "AI has identified key moments for you.",
-            });
-        }
-      }
+                  if (!transcriptResult.success || !transcriptResult.data) {
+                      throw new Error(transcriptResult.error || 'Failed to generate transcript. Please ensure your API key and Firebase config are correct.');
+                  }
+                  setTranscript(transcriptResult.data);
+                  toast({
+                      title: "Transcript Generated",
+                      description: "The transcript is ready for editing.",
+                  });
+
+                  // Step 3: Suggest hotspots
+                  setProcessingStatus('Analyzing for hotspots...');
+                  const fullTranscriptText = transcriptResult.data.words.map(w => w.text).join(' ');
+                  const hotspotsResult = await suggestHotspotsAction({ transcript: fullTranscriptText });
+                  
+                  if (!hotspotsResult.success || !hotspotsResult.data) {
+                      console.warn('Could not generate hotspots, but continuing.', hotspotsResult.error);
+                      setHotspots([]);
+                  } else {
+                      setHotspots(hotspotsResult.data);
+                      if (hotspotsResult.data.length > 0) {
+                          toast({
+                              title: "Hotspots Suggested",
+                              description: "AI has identified key moments for you.",
+                          });
+                      }
+                  }
+                  setIsProcessing(false);
+                  setProcessingStatus('');
+
+              } catch (flowError) {
+                  // Error during Genkit flow processing
+                  console.error('Processing failed after upload:', flowError);
+                  toast({
+                      variant: "destructive",
+                      title: "Oh no! Something went wrong.",
+                      description: flowError instanceof Error ? flowError.message : "An unknown error occurred during video processing.",
+                  });
+                  resetState();
+              }
+          }
+      );
 
     } catch (error) {
-      console.error('Processing failed:', error);
+      // Initial upload setup error
+      console.error('Processing setup failed:', error);
       toast({
         variant: "destructive",
         title: "Oh no! Something went wrong.",
-        description: error instanceof Error ? error.message : "An unknown error occurred during video processing.",
+        description: error instanceof Error ? error.message : "An unknown error occurred during video processing setup.",
       });
       resetState();
-    } finally {
-      setIsProcessing(false);
-      setProcessingStatus('');
     }
   };
 
@@ -101,7 +141,7 @@ export default function Home() {
             brandOptions={brandOptions}
           />
         ) : (
-          <VideoUploader onFileUpload={handleFileUpload} isProcessing={isProcessing} status={processingStatus} />
+          <VideoUploader onFileUpload={handleFileUpload} isProcessing={isProcessing} status={processingStatus} progress={uploadProgress} />
         )}
       </main>
     </div>

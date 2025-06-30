@@ -2,14 +2,16 @@
 
 import * as React from 'react';
 import { UploadCloud, Loader2 } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
 
 interface VideoUploaderProps {
   onFileUpload: (file: File) => void;
   isProcessing: boolean;
   status: string;
+  progress: number;
 }
 
-export function VideoUploader({ onFileUpload, isProcessing, status }: VideoUploaderProps) {
+export function VideoUploader({ onFileUpload, isProcessing, status, progress }: VideoUploaderProps) {
   const [isDragging, setIsDragging] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
@@ -56,12 +58,12 @@ export function VideoUploader({ onFileUpload, isProcessing, status }: VideoUploa
       <div
         className={`relative flex w-full flex-col items-center justify-center rounded-lg border-2 border-dashed p-12 transition-colors duration-200 ${
           isDragging ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/50'
-        }`}
+        } ${isProcessing ? 'cursor-default' : 'cursor-pointer'}`}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
-        onClick={handleBrowseClick}
+        onClick={!isProcessing ? handleBrowseClick : undefined}
       >
         <input
           ref={inputRef}
@@ -75,7 +77,12 @@ export function VideoUploader({ onFileUpload, isProcessing, status }: VideoUploa
           <>
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
             <h2 className="mt-4 text-xl font-semibold font-headline tracking-tight">Processing Video...</h2>
-            <p className="mt-2 text-sm text-muted-foreground">{status || 'Please wait, this may take a few moments.'}</p>
+            <p className="mt-2 text-sm text-muted-foreground">{status}</p>
+            {progress > 0 && progress < 100 && (
+              <div className="w-full mt-4">
+                <Progress value={progress} className="w-full" />
+              </div>
+            )}
           </>
         ) : (
           <>

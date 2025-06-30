@@ -1,7 +1,7 @@
 'use server';
 
 /**
- * @fileOverview Generates a time-coded transcript of a video or audio file.
+ * @fileOverview Generates a time-coded transcript of a video or audio file from Google Cloud Storage.
  *
  * - generateTranscript - A function that handles the transcript generation process.
  * - GenerateTranscriptInput - The input type for the generateTranscript function.
@@ -12,12 +12,7 @@ import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
 const GenerateTranscriptInputSchema = z.object({
-  media: z.object({
-    bytes: z.instanceof(Buffer),
-    mimeType: z.string(),
-  }).describe(
-    'A video or audio file represented by its raw bytes and MIME type.'
-  ),
+  gcsUri: z.string().describe('The Google Cloud Storage URI of the video file (e.g., gs://bucket-name/file-name).'),
 });
 
 export type GenerateTranscriptInput = z.infer<typeof GenerateTranscriptInputSchema>;
@@ -47,14 +42,15 @@ const generateTranscriptFlow = ai.defineFlow(
   },
   async input => {
     const {output} = await ai.generate({
-        model: 'googleai/gemini-1.5-flash',
+        // Using a more powerful model better suited for large video files.
+        model: 'googleai/gemini-1.5-pro',
         prompt: [
             { text: `You are an expert transcriptionist. Your task is to generate a precise, time-coded transcript from the provided media file.
 
 Analyze the media file and return a structured transcript with an array of word objects. Each object must contain the word's text, and its start and end time in seconds.
 
 The output MUST be a valid JSON object that adheres to the provided schema. Do not include any markdown formatting like \`\`\`json.` },
-            { media: { bytes: input.media.bytes, contentType: input.media.mimeType } }
+            { media: { uri: input.gcsUri } }
         ],
         output: {
             format: 'json',

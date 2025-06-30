@@ -1,26 +1,15 @@
 'use server';
 
-import { generateTranscript } from '@/ai/flows/generate-transcript';
+import { generateTranscript, GenerateTranscriptInput } from '@/ai/flows/generate-transcript';
 import { suggestHotspots, SuggestHotspotsInput } from '@/ai/flows/suggest-hotspots';
 import { generateVideoBackground, GenerateVideoBackgroundInput } from '@/ai/flows/generate-video-background';
 
-export async function generateTranscriptAction(formData: FormData) {
-  const file = formData.get('videoFile') as File;
-  if (!file) {
-    return { success: false, error: 'No file uploaded.' };
-  }
-
+export async function generateTranscriptFromGcsAction(input: GenerateTranscriptInput) {
   try {
-    const fileBuffer = Buffer.from(await file.arrayBuffer());
-    const transcript = await generateTranscript({
-      media: {
-        bytes: fileBuffer,
-        mimeType: file.type,
-      },
-    });
+    const transcript = await generateTranscript(input);
     return { success: true, data: transcript };
   } catch (error) {
-    console.error('Error generating transcript:', error);
+    console.error('Error generating transcript from GCS:', error);
     const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
     return { 
       success: false, 
