@@ -8,6 +8,15 @@ import { generateTranscriptAction, suggestHotspotsAction } from '@/app/actions';
 import type { BrandOptions, Hotspot, Transcript } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 
+const fileToDataUri = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+};
+
 export default function Home() {
   const [videoFile, setVideoFile] = React.useState<File | null>(null);
   const [videoUrl, setVideoUrl] = React.useState<string | null>(null);
@@ -40,17 +49,14 @@ export default function Home() {
     setIsProcessing(true);
 
     try {
-      // Step 1: "Extract" audio and generate transcript
-      // In a real app, you would extract audio properly. Here we simulate it.
-      // We will create a dummy data URI as the AI flow expects it.
-      // A real implementation would likely use a backend service to extract audio from the video stored in a cloud bucket.
+      // Step 1: Convert file to data URI and generate transcript
       setProcessingStatus('Generating transcript...');
-      const dummyAudioDataUri = 'data:audio/mp3;base64,SUQzBAAAAAAB9B4B'; // Placeholder
+      const mediaDataUri = await fileToDataUri(file);
       
-      const transcriptResult = await generateTranscriptAction({ audioDataUri: dummyAudioDataUri });
+      const transcriptResult = await generateTranscriptAction({ mediaDataUri });
 
       if (!transcriptResult.success || !transcriptResult.data) {
-        throw new Error(transcriptResult.error || 'Failed to generate transcript.');
+        throw new Error(transcriptResult.error || 'Failed to generate transcript. Please ensure your API key is configured.');
       }
       setTranscript(transcriptResult.data);
       toast({
@@ -64,14 +70,17 @@ export default function Home() {
       const hotspotsResult = await suggestHotspotsAction({ transcript: fullTranscriptText });
       
       if (!hotspotsResult.success || !hotspotsResult.data) {
+        // This is non-critical, so just warn and continue.
         console.warn('Could not generate hotspots, but continuing.', hotspotsResult.error);
         setHotspots([]);
       } else {
         setHotspots(hotspotsResult.data);
-        toast({
-            title: "Hotspots Suggested",
-            description: "AI has identified key moments for you.",
-        });
+        if (hotspotsResult.data.length > 0) {
+            toast({
+                title: "Hotspots Suggested",
+                description: "AI has identified key moments for you.",
+            });
+        }
       }
 
     } catch (error) {

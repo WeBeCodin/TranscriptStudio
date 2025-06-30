@@ -14,10 +14,10 @@ import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
 const GenerateTranscriptInputSchema = z.object({
-  audioDataUri: z
+  mediaDataUri: z
     .string()
     .describe(
-      "A audio file, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
+      "A video or audio file, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
     ),
 });
 
@@ -48,13 +48,13 @@ const generateTranscriptPrompt = ai.definePrompt({
   name: 'generateTranscriptPrompt',
   input: {schema: GenerateTranscriptInputSchema},
   output: {schema: GenerateTranscriptOutputSchema},
-  prompt: `You are an expert transcriptionist specializing in generating transcripts from audio files.
+  prompt: `You are an expert transcriptionist specializing in generating transcripts from media files.
 
-You will use this information to generate a time-coded transcript of the audio file.
+You will use this information to generate a time-coded transcript of the media file.
 
-Use the following as the primary source of information about the audio.
+Use the following as the primary source of information about the media.
 
-Audio: {{media url=audioDataUri}}`,
+Media: {{media url=mediaDataUri}}`,
 });
 
 const generateTranscriptFlow = ai.defineFlow(
