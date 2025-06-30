@@ -9,7 +9,6 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import { generateVideoBackgroundAction } from '@/app/actions';
 
 const GenerateVideoBackgroundInputSchema = z.object({
   frameDataUri: z
