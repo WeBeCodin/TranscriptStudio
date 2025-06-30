@@ -50,6 +50,8 @@ const generateTranscriptPrompt = ai.definePrompt({
 
 Analyze the media file and return a structured transcript with an array of word objects. Each object must contain the word's text, and its start and end time in seconds.
 
+The output MUST be a valid JSON object that adheres to the provided schema. Do not include any markdown formatting like \`\`\`json.
+
 Media for transcription: {{media url=mediaDataUri}}`,
 });
 
@@ -61,6 +63,11 @@ const generateTranscriptFlow = ai.defineFlow(
   },
   async input => {
     const {output} = await generateTranscriptPrompt(input);
-    return output!;
+    if (!output) {
+        throw new Error(
+            'The AI model failed to generate a valid transcript. This might be due to an issue with the media file or a temporary model problem. Please try again with a different video.'
+        );
+    }
+    return output;
   }
 );
