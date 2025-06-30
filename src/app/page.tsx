@@ -42,27 +42,43 @@ export default function Home() {
     setVideoFile(file);
     setVideoUrl(URL.createObjectURL(file));
     setIsProcessing(true);
+    setProcessingStatus('Starting upload...');
 
     try {
-      // Step 1: Upload to Firebase Storage
-      setProcessingStatus(`Uploading video... ${Math.round(uploadProgress)}%`);
-      const storageRef = ref(storage, `videos/${Date.now()}-${file.name}`);
-      const uploadTask = uploadBytesResumable(storageRef, file);
+      // Step 1: Upload to Firebase Storage using a robust Promise-based approach
+      const gcsUri = await new Promise<string>((resolve, reject) => {
+        const storageRef = ref(storage, `videos/${Date.now()}-${file.name}`);
+        const uploadTask = uploadBytesResumable(storageRef, file);
 
-      // Listen for state changes to update progress
-      uploadTask.on('state_changed',
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setUploadProgress(progress);
-          setProcessingStatus(`Uploading video... ${Math.round(progress)}%`);
-        }
-      );
-
-      // Wait for the upload to complete. This will throw an error on failure.
-      await uploadTask;
-
-      // At this point, upload is successful
-      const gcsUri = `gs://${uploadTask.snapshot.ref.bucket}/${uploadTask.snapshot.ref.fullPath}`;
+        uploadTask.on(
+          'state_changed',
+          (snapshot) => {
+            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+            setUploadProgress(progress);
+            setProcessingStatus(`Uploading video... ${Math.round(progress)}%`);
+          },
+          (error) => {
+            console.error("Firebase Storage Error:", error);
+            let message = "Upload failed. Please try again.";
+            switch (error.code) {
+              case 'storage/unauthorized':
+                message = "Permission denied. Please check your Firebase Storage rules.";
+                break;
+              case 'storage/canceled':
+                message = "Upload was canceled.";
+                break;
+              case 'storage/unknown':
+                message = "An unknown error occurred. Please check your network and Firebase config.";
+                break;
+            }
+            reject(new Error(message));
+          },
+          () => {
+            const gcsPath = `gs://${uploadTask.snapshot.ref.bucket}/${uploadTask.snapshot.ref.fullPath}`;
+            resolve(gcsPath);
+          }
+        );
+      });
 
       // Step 2: Generate transcript from GCS URI
       setProcessingStatus('Generating transcript...');
@@ -99,14 +115,11 @@ export default function Home() {
       setProcessingStatus('');
 
     } catch (error: any) {
-      // Catches errors from upload OR from the Genkit flows
       console.error('Processing failed:', error);
       toast({
         variant: "destructive",
         title: "Oh no! Something went wrong.",
-        description: error?.code?.includes('storage/') 
-          ? 'Upload failed. Please check your Firebase Storage rules and configuration.'
-          : (error instanceof Error ? error.message : "An unknown error occurred during video processing."),
+        description: error instanceof Error ? error.message : "An unknown error occurred during video processing.",
       });
       resetState();
     }
