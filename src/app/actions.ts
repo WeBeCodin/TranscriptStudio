@@ -2,6 +2,7 @@
 
 import { generateTranscript, GenerateTranscriptInput } from '@/ai/flows/generate-transcript';
 import { suggestHotspots, SuggestHotspotsInput } from '@/ai/flows/suggest-hotspots';
+import { generateVideoBackground, GenerateVideoBackgroundInput } from '@/ai/flows/generate-video-background';
 
 export async function generateTranscriptAction(input: GenerateTranscriptInput) {
   try {
@@ -27,4 +28,18 @@ export async function suggestHotspotsAction(input: SuggestHotspotsInput) {
     // The UI can gracefully handle no hotspots.
     return { success: true, data: [] };
   }
+}
+
+export async function generateVideoBackgroundAction(input: GenerateVideoBackgroundInput) {
+    try {
+      const result = await generateVideoBackground(input);
+      return { success: true, data: result };
+    } catch (error) {
+      console.error('Error generating video background:', error);
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
+      return { 
+        success: false, 
+        error: errorMessage 
+      };
+    }
 }
