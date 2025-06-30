@@ -45,85 +45,68 @@ export default function Home() {
 
     try {
       // Step 1: Upload to Firebase Storage
-      setProcessingStatus(`Uploading video... 0%`);
+      setProcessingStatus(`Uploading video... ${Math.round(uploadProgress)}%`);
       const storageRef = ref(storage, `videos/${Date.now()}-${file.name}`);
       const uploadTask = uploadBytesResumable(storageRef, file);
 
+      // Listen for state changes to update progress
       uploadTask.on('state_changed',
-          (snapshot) => {
-              const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-              setUploadProgress(progress);
-              setProcessingStatus(`Uploading video... ${Math.round(progress)}%`);
-          },
-          (error) => {
-              // Firebase storage upload error
-              console.error('Upload failed:', error);
-              toast({
-                  variant: "destructive",
-                  title: "Upload Failed",
-                  description: `Could not upload to Firebase Storage. Please check your storage rules and Firebase configuration.`,
-              });
-              resetState();
-          },
-          async () => {
-              // Upload complete, now run Genkit flows
-              try {
-                  setUploadProgress(100);
-                  const gcsUri = `gs://${uploadTask.snapshot.ref.bucket}/${uploadTask.snapshot.ref.fullPath}`;
-                  
-                  // Step 2: Generate transcript from GCS URI
-                  setProcessingStatus('Generating transcript...');
-                  const transcriptResult = await generateTranscriptFromGcsAction({ gcsUri });
-
-                  if (!transcriptResult.success || !transcriptResult.data) {
-                      throw new Error(transcriptResult.error || 'Failed to generate transcript. Please ensure your API key and Firebase config are correct.');
-                  }
-                  setTranscript(transcriptResult.data);
-                  toast({
-                      title: "Transcript Generated",
-                      description: "The transcript is ready for editing.",
-                  });
-
-                  // Step 3: Suggest hotspots
-                  setProcessingStatus('Analyzing for hotspots...');
-                  const fullTranscriptText = transcriptResult.data.words.map(w => w.text).join(' ');
-                  const hotspotsResult = await suggestHotspotsAction({ transcript: fullTranscriptText });
-                  
-                  if (!hotspotsResult.success || !hotspotsResult.data) {
-                      console.warn('Could not generate hotspots, but continuing.', hotspotsResult.error);
-                      setHotspots([]);
-                  } else {
-                      setHotspots(hotspotsResult.data);
-                      if (hotspotsResult.data.length > 0) {
-                          toast({
-                              title: "Hotspots Suggested",
-                              description: "AI has identified key moments for you.",
-                          });
-                      }
-                  }
-                  setIsProcessing(false);
-                  setProcessingStatus('');
-
-              } catch (flowError) {
-                  // Error during Genkit flow processing
-                  console.error('Processing failed after upload:', flowError);
-                  toast({
-                      variant: "destructive",
-                      title: "Oh no! Something went wrong.",
-                      description: flowError instanceof Error ? flowError.message : "An unknown error occurred during video processing.",
-                  });
-                  resetState();
-              }
-          }
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setUploadProgress(progress);
+          setProcessingStatus(`Uploading video... ${Math.round(progress)}%`);
+        }
       );
 
-    } catch (error) {
-      // Initial upload setup error
-      console.error('Processing setup failed:', error);
+      // Wait for the upload to complete. This will throw an error on failure.
+      await uploadTask;
+
+      // At this point, upload is successful
+      const gcsUri = `gs://${uploadTask.snapshot.ref.bucket}/${uploadTask.snapshot.ref.fullPath}`;
+
+      // Step 2: Generate transcript from GCS URI
+      setProcessingStatus('Generating transcript...');
+      const transcriptResult = await generateTranscriptFromGcsAction({ gcsUri });
+
+      if (!transcriptResult.success || !transcriptResult.data) {
+        throw new Error(transcriptResult.error || 'Failed to generate transcript. Please ensure your API key and Firebase config are correct.');
+      }
+      setTranscript(transcriptResult.data);
+      toast({
+          title: "Transcript Generated",
+          description: "The transcript is ready for editing.",
+      });
+
+      // Step 3: Suggest hotspots
+      setProcessingStatus('Analyzing for hotspots...');
+      const fullTranscriptText = transcriptResult.data.words.map(w => w.text).join(' ');
+      const hotspotsResult = await suggestHotspotsAction({ transcript: fullTranscriptText });
+
+      if (!hotspotsResult.success || !hotspotsResult.data) {
+          console.warn('Could not generate hotspots, but continuing.', hotspotsResult.error);
+          setHotspots([]);
+      } else {
+          setHotspots(hotspotsResult.data);
+          if (hotspotsResult.data.length > 0) {
+              toast({
+                  title: "Hotspots Suggested",
+                  description: "AI has identified key moments for you.",
+              });
+          }
+      }
+
+      setIsProcessing(false);
+      setProcessingStatus('');
+
+    } catch (error: any) {
+      // Catches errors from upload OR from the Genkit flows
+      console.error('Processing failed:', error);
       toast({
         variant: "destructive",
         title: "Oh no! Something went wrong.",
-        description: error instanceof Error ? error.message : "An unknown error occurred during video processing setup.",
+        description: error?.code?.includes('storage/') 
+          ? 'Upload failed. Please check your Firebase Storage rules and configuration.'
+          : (error instanceof Error ? error.message : "An unknown error occurred during video processing."),
       });
       resetState();
     }
