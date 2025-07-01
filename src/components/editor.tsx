@@ -1,3 +1,4 @@
+// File: src/components/editor.tsx
 'use client';
 
 import * as React from 'react';

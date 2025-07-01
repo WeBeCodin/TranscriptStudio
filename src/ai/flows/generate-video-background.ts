@@ -1,3 +1,4 @@
+// File: src/ai/flows/generate-video-background.ts
 'use server';
 /**
  * @fileOverview Generates a background for a video frame.

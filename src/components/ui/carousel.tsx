@@ -1,3 +1,4 @@
+// File: src/components/ui/carousel.tsx
 "use client"
 
 import * as React from "react"

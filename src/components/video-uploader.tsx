@@ -1,3 +1,4 @@
+// File: src/components/video-uploader.tsx
 'use client';
 
 import * as React from 'react';

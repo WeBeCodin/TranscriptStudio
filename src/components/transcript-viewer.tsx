@@ -1,3 +1,4 @@
+// File: src/components/transcript-viewer.tsx
 'use client';
 
 import * as React from 'react';

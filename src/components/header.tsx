@@ -1,3 +1,4 @@
+// File: src/components/header.tsx
 'use client';
 
 import * as React from 'react';
