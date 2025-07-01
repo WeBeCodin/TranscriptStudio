@@ -73,8 +73,11 @@ export default function Home() {
       setProcessingStatus('Generating transcript...');
       const transcriptResult = await generateTranscriptFromGcsAction({ gcsUri });
 
-      if (!transcriptResult.success || !transcriptResult.data) {
-        throw new Error(transcriptResult.error || 'Failed to generate transcript. Please ensure your API key and Firebase config are correct.');
+      if (!transcriptResult || !transcriptResult.success || !transcriptResult.data) {
+        const errorMessage = (transcriptResult && typeof transcriptResult.error === 'string')
+          ? transcriptResult.error
+          : 'Failed to generate transcript. Please ensure your API key and Firebase config are correct.';
+        throw new Error(errorMessage);
       }
       setTranscript(transcriptResult.data);
       toast({
