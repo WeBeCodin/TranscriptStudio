@@ -18,11 +18,16 @@ export async function generateTranscriptFromGcsAction(input: GenerateTranscriptI
     const transcript = await generateTranscript(input);
     return { success: true, data: transcript };
   } catch (error) {
-    console.error('Error generating transcript from GCS:', error);
-    const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
+    // Log the detailed error on the server for debugging purposes.
+    console.error('A critical error occurred in generateTranscriptFromGcsAction. Full error:', error);
+    
+    // Return a generic, safe error message to the client.
+    // This avoids any potential issues with serializing complex error objects from the server to the client.
+    const clientErrorMessage = 'The AI model failed to process the video. This could be an issue with the file, API permissions, or a temporary service problem. Please check the server logs for details.';
+    
     return { 
       success: false, 
-      error: errorMessage
+      error: clientErrorMessage
     };
   }
 }
