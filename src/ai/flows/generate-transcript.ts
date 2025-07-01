@@ -42,12 +42,14 @@ const generateTranscriptFlow = ai.defineFlow(
   },
   async input => {
     const {output} = await ai.generate({
-        // Using a more powerful model better suited for large video files.
-        model: 'googleai/gemini-1.5-pro',
+        // Switching to a faster, more cost-effective model less likely to have access issues.
+        model: 'googleai/gemini-1.5-flash',
         prompt: [
             { text: `You are an expert transcriptionist. Your task is to generate a precise, time-coded transcript from the provided media file.
 
-Analyze the media file and return a structured transcript with an array of word objects. Each object must contain the word's text, and its start and end time in seconds.
+- Identify different speakers and assign a unique speaker ID to each one (e.g., 0, 1, 2).
+- Analyze the media file and return a structured transcript with an array of word objects. 
+- Each object must contain the word's text, its start and end time in seconds, and the corresponding speaker ID.
 
 The output MUST be a valid JSON object that adheres to the provided schema. Do not include any markdown formatting like \`\`\`json.` },
             { media: { uri: input.gcsUri } }
