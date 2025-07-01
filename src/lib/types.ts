@@ -1,4 +1,3 @@
-// File: src/lib/types.ts
 import type { GenerateTranscriptOutput } from '@/ai/flows/generate-transcript';
 import type { SuggestHotspotsOutput } from '@/ai/flows/suggest-hotspots';
 

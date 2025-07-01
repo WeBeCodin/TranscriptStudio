@@ -1,4 +1,3 @@
-// File: src/ai/flows/suggest-hotspots.ts
 'use server';
 
 /**

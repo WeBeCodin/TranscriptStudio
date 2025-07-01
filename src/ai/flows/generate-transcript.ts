@@ -1,4 +1,3 @@
-// File: src/ai/flows/generate-transcript.ts
 'use server';
 
 /**

@@ -1,4 +1,3 @@
-// File: src/app/actions.ts
 'use server';
 
 import { generateTranscript, GenerateTranscriptInput } from '@/ai/flows/generate-transcript';

@@ -1,4 +1,3 @@
-// File: src/components/brand-settings.tsx
 'use client';
 
 import * as React from 'react';
