@@ -5,7 +5,7 @@ import { AppHeader } from '@/components/header';
 import { VideoUploader } from '@/components/video-uploader';
 import { Editor } from '@/components/editor';
 import { storage } from '@/lib/firebase';
-import { ref, uploadBytesResumable } from 'firebase/storage';
+import { ref, uploadBytesResumable, FirebaseStorageError } from 'firebase/storage';
 import { generateTranscriptFromGcsAction, suggestHotspotsAction } from '@/app/actions';
 import type { BrandOptions, Hotspot, Transcript } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
@@ -45,7 +45,6 @@ export default function Home() {
     setProcessingStatus('Starting upload...');
 
     try {
-      // Step 1: Upload to Firebase Storage using a robust Promise-based approach
       const gcsUri = await new Promise<string>((resolve, reject) => {
         const storageRef = ref(storage, `videos/${Date.now()}-${file.name}`);
         const uploadTask = uploadBytesResumable(storageRef, file);
@@ -57,10 +56,12 @@ export default function Home() {
             setUploadProgress(progress);
             setProcessingStatus(`Uploading video... ${Math.round(progress)}%`);
           },
-          (error) => {
+          (error: FirebaseStorageError) => {
             console.error("Firebase Storage Error:", error);
-            // Reject with the original error so the catch block can display a more specific message
-            reject(error);
+            const message = error.code === 'storage/unauthorized' 
+              ? "Permission denied. Please check your Firebase Storage rules."
+              : `Upload failed: ${error.message}`;
+            reject(new Error(message));
           },
           () => {
             const gcsPath = `gs://${uploadTask.snapshot.ref.bucket}/${uploadTask.snapshot.ref.fullPath}`;
@@ -69,7 +70,6 @@ export default function Home() {
         );
       });
 
-      // Step 2: Generate transcript from GCS URI
       setProcessingStatus('Generating transcript...');
       const transcriptResult = await generateTranscriptFromGcsAction({ gcsUri });
 
@@ -82,7 +82,6 @@ export default function Home() {
           description: "The transcript is ready for editing.",
       });
 
-      // Step 3: Suggest hotspots
       setProcessingStatus('Analyzing for hotspots...');
       const fullTranscriptText = transcriptResult.data.words.map(w => w.text).join(' ');
       const hotspotsResult = await suggestHotspotsAction({ transcript: fullTranscriptText });
