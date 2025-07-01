@@ -6,43 +6,134 @@ import { VideoUploader } from '@/components/video-uploader';
 import { Editor } from '@/components/editor';
 import { storage } from '@/lib/firebase';
 import { ref, uploadBytesResumable, FirebaseStorageError } from 'firebase/storage';
-import { generateTranscriptFromGcsAction, suggestHotspotsAction } from '@/app/actions';
-import type { BrandOptions, Hotspot, Transcript } from '@/lib/types';
+import { requestTranscriptionAction, suggestHotspotsAction } from '@/app/actions'; // Changed generateTranscriptFromGcsAction to requestTranscriptionAction
+import type { BrandOptions, Hotspot, Transcript, TranscriptionJob, JobStatus } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
+import { db } from '@/lib/firebase'; // Added db for Firestore
+import { doc, onSnapshot, Timestamp } from 'firebase/firestore'; // Added Firestore specific imports
+import { v4 as uuidv4 } from 'uuid'; // For generating unique job IDs
 
 export default function Home() {
   const [videoFile, setVideoFile] = React.useState<File | null>(null);
   const [videoUrl, setVideoUrl] = React.useState<string | null>(null);
   const [transcript, setTranscript] = React.useState<Transcript | null>(null);
   const [hotspots, setHotspots] = React.useState<Hotspot[] | null>(null);
-  const [isProcessing, setIsProcessing] = React.useState(false);
+  const [isProcessing, setIsProcessing] = React.useState(false); // This will now cover the whole async process
   const [processingStatus, setProcessingStatus] = React.useState('');
   const [brandOptions, setBrandOptions] = React.useState<BrandOptions>({
     primaryColor: '#3498DB',
     font: 'Inter',
   });
   const [uploadProgress, setUploadProgress] = React.useState(0);
+  const [currentJobId, setCurrentJobId] = React.useState<string | null>(null);
   
   const { toast } = useToast();
 
-  const resetState = () => {
-    setVideoFile(null);
-    setVideoUrl(null);
+  // Firestore listener effect
+  React.useEffect(() => {
+    if (!currentJobId) return;
+
+    setProcessingStatus('Transcription requested. Waiting for updates...');
+    const unsubscribe = onSnapshot(doc(db, "transcriptionJobs", currentJobId), async (jobDoc) => {
+      if (jobDoc.exists()) {
+        const jobData = jobDoc.data() as Omit<TranscriptionJob, 'id'> & { createdAt: Timestamp, updatedAt: Timestamp };
+        setProcessingStatus(`Job ${jobData.status.toLowerCase()}...`);
+
+        switch (jobData.status) {
+          case 'PROCESSING':
+            setProcessingStatus('AI is processing the video...');
+            break;
+          case 'COMPLETED':
+            if (jobData.transcript) {
+              setTranscript(jobData.transcript);
+              toast({
+                title: "Transcript Generated",
+                description: "The transcript is ready.",
+              });
+
+              // Proceed to hotspots generation
+              setProcessingStatus('Analyzing for hotspots...');
+              const fullTranscriptText = jobData.transcript.words.map(w => w.text).join(' ');
+              const hotspotsResult = await suggestHotspotsAction({ transcript: fullTranscriptText });
+
+              if (!hotspotsResult.success || !hotspotsResult.data) {
+                console.warn('Could not generate hotspots, but continuing.', hotspotsResult.error);
+                setHotspots([]);
+              } else {
+                setHotspots(hotspotsResult.data);
+                if (hotspotsResult.data.length > 0) {
+                  toast({
+                    title: "Hotspots Suggested",
+                    description: "AI has identified key moments for you.",
+                  });
+                }
+              }
+              setIsProcessing(false); // Entire process finished
+              setProcessingStatus('Processing complete!');
+              setCurrentJobId(null); // Clear job ID after completion
+            } else {
+              // Should not happen if status is COMPLETED
+              toast({ variant: "destructive", title: "Error", description: "Transcript missing for completed job." });
+              setIsProcessing(false);
+              setCurrentJobId(null);
+            }
+            unsubscribe(); // Stop listening once completed
+            break;
+          case 'FAILED':
+            console.error('Transcription job failed:', jobData.error);
+            toast({
+              variant: "destructive",
+              title: "Transcription Failed",
+              description: jobData.error || "The AI failed to transcribe the video.",
+            });
+            resetState(); // Reset relevant parts of state
+            unsubscribe(); // Stop listening on failure
+            break;
+          case 'PENDING':
+            setProcessingStatus('Transcription job is pending...');
+            break;
+        }
+      } else {
+        console.warn("Job document not found for ID:", currentJobId);
+        // Potentially handle this, though it shouldn't happen if created correctly
+      }
+    }, (error) => {
+      console.error("Error listening to job updates:", error);
+      toast({
+        variant: "destructive",
+        title: "Connection Error",
+        description: "Could not listen for transcription updates.",
+      });
+      resetState();
+    });
+
+    return () => unsubscribe(); // Cleanup listener on component unmount or if jobId changes
+  }, [currentJobId, toast]);
+
+
+  const resetState = (keepVideo: boolean = false) => {
+    if (!keepVideo) {
+      setVideoFile(null);
+      setVideoUrl(null);
+    }
     setTranscript(null);
     setHotspots(null);
     setIsProcessing(false);
     setProcessingStatus('');
     setUploadProgress(0);
+    setCurrentJobId(null); 
+    // Note: We don't reset brandOptions here
   };
 
   const handleFileUpload = async (file: File) => {
     if (isProcessing) return;
 
-    resetState();
+    resetState(); // Reset previous state first
     setVideoFile(file);
-    setVideoUrl(URL.createObjectURL(file));
+    setVideoUrl(URL.createObjectURL(file)); // Show local preview immediately
     setIsProcessing(true);
     setProcessingStatus('Starting upload...');
+    setUploadProgress(0);
 
     try {
       const gcsUri = await new Promise<string>((resolve, reject) => {
@@ -63,54 +154,34 @@ export default function Home() {
               : `Upload failed: ${error.message}`;
             reject(new Error(message));
           },
-          () => {
+          async () => { // Changed to async to handle promise from resolve
             const gcsPath = `gs://${uploadTask.snapshot.ref.bucket}/${uploadTask.snapshot.ref.fullPath}`;
             resolve(gcsPath);
           }
         );
       });
 
-      setProcessingStatus('Generating transcript...');
-      const transcriptResult = await generateTranscriptFromGcsAction({ gcsUri });
+      setProcessingStatus('Upload complete. Requesting transcript...');
+      const jobId = uuidv4();
+      const transcriptRequestResult = await requestTranscriptionAction({ gcsUri, jobId });
 
-      if (!transcriptResult?.success) {
-        throw new Error(transcriptResult?.error || 'AI transcript generation failed. Please try again.');
+      if (!transcriptRequestResult?.success || !transcriptRequestResult.jobId) {
+        throw new Error(transcriptRequestResult?.error || 'Failed to request transcript generation.');
       }
       
-      setTranscript(transcriptResult.data);
-      toast({
-          title: "Transcript Generated",
-          description: "The transcript is ready for editing.",
-      });
-
-      setProcessingStatus('Analyzing for hotspots...');
-      const fullTranscriptText = transcriptResult.data.words.map(w => w.text).join(' ');
-      const hotspotsResult = await suggestHotspotsAction({ transcript: fullTranscriptText });
-
-      if (!hotspotsResult.success || !hotspotsResult.data) {
-          console.warn('Could not generate hotspots, but continuing.', hotspotsResult.error);
-          setHotspots([]);
-      } else {
-          setHotspots(hotspotsResult.data);
-          if (hotspotsResult.data.length > 0) {
-              toast({
-                  title: "Hotspots Suggested",
-                  description: "AI has identified key moments for you.",
-              });
-          }
-      }
-
-      setIsProcessing(false);
-      setProcessingStatus('');
+      setCurrentJobId(transcriptRequestResult.jobId); // This will trigger the useEffect listener
+      // No longer setting transcript directly here, listener will handle it.
+      // No longer calling suggestHotspotsAction here, listener will handle it.
+      // isProcessing will be set to false by the listener when the job is COMPLETED or FAILED.
 
     } catch (error: any) {
-      console.error('Processing failed:', error);
+      console.error('File upload or transcription request failed:', error);
       toast({
         variant: "destructive",
         title: "Oh no! Something went wrong.",
-        description: error.message || "An unknown error occurred during video processing.",
+        description: error.message || "An unknown error occurred during video processing setup.",
       });
-      resetState();
+      resetState(); // Reset everything on initial error
     }
   };
 
