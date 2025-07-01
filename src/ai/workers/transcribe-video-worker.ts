@@ -1,15 +1,13 @@
-import { Request, Response } from 'express'; // Assuming a GCF HTTP trigger uses express-like types
-import { db } from '@/lib/firebase'; // Adjust path if necessary, GCF might need its own firebase admin init
-import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import type { Request, Response } from 'express';
+import * as admin from 'firebase-admin';
 import { generateTranscript, GenerateTranscriptInput } from '@/ai/flows/generate-transcript';
 import type { Transcript } from '@/lib/types';
 
-// If deploying as a GCF, Firebase Admin SDK might be initialized differently:
-// import * as admin from 'firebase-admin';
-// if (admin.apps.length === 0) {
-//   admin.initializeApp();
-// }
-// const db = admin.firestore();
+// Initialize Firebase Admin SDK if not already initialized
+if (admin.apps.length === 0) {
+  admin.initializeApp();
+}
+const db = admin.firestore();
 
 interface TranscribeWorkerInput {
   jobId: string;
@@ -33,17 +31,18 @@ export async function transcribeVideoWorker(req: Request, res: Response): Promis
     return;
   }
 
-  const jobRef = doc(db, "transcriptionJobs", jobId);
+  const jobRef = db.collection("transcriptionJobs").doc(jobId);
 
   try {
     // 1. Update job status to PROCESSING
-    await updateDoc(jobRef, {
+    await jobRef.update({
       status: 'PROCESSING',
-      updatedAt: serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     // 2. Perform transcription
-    // Ensure generateTranscript is self-contained or has dependencies correctly resolved in GCF environment
+    // This now relies on the GCF's environment having ADC (Application Default Credentials)
+    // correctly set up with access to the Google AI services.
     const transcriptData: Transcript = await generateTranscript({ gcsUri });
 
     if (!transcriptData || !transcriptData.words) {
@@ -51,10 +50,10 @@ export async function transcribeVideoWorker(req: Request, res: Response): Promis
     }
 
     // 3. Update job with COMPLETED status and transcript
-    await updateDoc(jobRef, {
+    await jobRef.update({
       status: 'COMPLETED',
       transcript: transcriptData,
-      updatedAt: serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     console.log(`Job ${jobId} completed successfully.`);
@@ -64,10 +63,10 @@ export async function transcribeVideoWorker(req: Request, res: Response): Promis
     console.error(`Error processing job ${jobId}:`, error);
     
     // 4. Update job with FAILED status and error message
-    await updateDoc(jobRef, {
+    await jobRef.update({
       status: 'FAILED',
       error: error.message || 'An unknown error occurred during transcription.',
-      updatedAt: serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }).catch(updateError => {
         // Log if updating Firestore itself fails
         console.error(`Failed to update job ${jobId} to FAILED status:`, updateError);
