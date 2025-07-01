@@ -22,7 +22,7 @@ export async function generateTranscriptFromGcsAction(input: GenerateTranscriptI
     const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
     return { 
       success: false, 
-      error: `AI transcript generation failed. This could be due to an invalid API key or an issue with the video file. Original error: ${errorMessage}`
+      error: errorMessage
     };
   }
 }

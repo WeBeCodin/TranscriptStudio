@@ -73,12 +73,10 @@ export default function Home() {
       setProcessingStatus('Generating transcript...');
       const transcriptResult = await generateTranscriptFromGcsAction({ gcsUri });
 
-      if (!transcriptResult || !transcriptResult.success || !transcriptResult.data) {
-        const errorMessage = (transcriptResult && typeof transcriptResult.error === 'string')
-          ? transcriptResult.error
-          : 'Failed to generate transcript. Please ensure your API key and Firebase config are correct.';
-        throw new Error(errorMessage);
+      if (!transcriptResult?.success) {
+        throw new Error(transcriptResult?.error || 'AI transcript generation failed. Please try again.');
       }
+      
       setTranscript(transcriptResult.data);
       toast({
           title: "Transcript Generated",
@@ -110,7 +108,7 @@ export default function Home() {
       toast({
         variant: "destructive",
         title: "Oh no! Something went wrong.",
-        description: error instanceof Error ? error.message : "An unknown error occurred during video processing.",
+        description: error.message || "An unknown error occurred during video processing.",
       });
       resetState();
     }
