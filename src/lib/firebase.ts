@@ -7,7 +7,7 @@ const firebaseConfig = {
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
   // Hardcoding for debugging - if this works, the .env loading is the issue.
   projectId: "transcript-studio-4drhv",
-  storageBucket: "transcript-studio-4drhv.firebasestorage.app",
+  storageBucket: "transcript-studio-4drhv.appspot.com",
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };

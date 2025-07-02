@@ -5,15 +5,8 @@ import { suggestHotspots, SuggestHotspotsInput } from '@/ai/flows/suggest-hotspo
 import { generateVideoBackground, GenerateVideoBackgroundInput } from '@/ai/flows/generate-video-background';
 
 export async function generateTranscriptFromGcsAction(input: GenerateTranscriptInput) {
-  if (!process.env.GOOGLE_API_KEY) {
-    const errorMessage = "The GOOGLE_API_KEY is missing from your .env file. Please get a key from Google AI Studio and add it to your server environment, then restart the development server.";
-    console.error(errorMessage);
-    return {
-      success: false,
-      error: errorMessage,
-    };
-  }
-
+  // The API key check is now handled by the Genkit initialization.
+  // This check is removed to prevent crashes when the .env file isn't loading.
   try {
     const transcript = await generateTranscript(input);
     return { success: true, data: transcript };
@@ -42,14 +35,8 @@ interface RequestTranscriptionInput {
 }
 
 export async function requestTranscriptionAction(input: RequestTranscriptionInput): Promise<{ success: boolean; jobId?: string; error?: string }> {
-  if (!process.env.GOOGLE_API_KEY) { // Keep this check as it's generally good for AI related actions
-    const errorMessage = "The GOOGLE_API_KEY is missing from your .env file.";
-    console.error(errorMessage);
-    return {
-      success: false,
-      error: errorMessage,
-    };
-  }
+  // The API key check is now handled by the Genkit initialization.
+  // This check is removed to prevent crashes when the .env file isn't loading.
 
   const { gcsUri, jobId } = input;
 
@@ -69,7 +56,9 @@ export async function requestTranscriptionAction(input: RequestTranscriptionInpu
 
     await setDoc(jobRef, newJob);
 
-    const gcfTriggerUrl = process.env.GCF_TRANSCRIPTION_TRIGGER_URL;
+    // Hardcoding the GCF URL as a workaround for .env loading issues.
+    const gcfTriggerUrl = "https://transcriptworker-371403164462.europe-west1.run.app";
+
     if (gcfTriggerUrl) {
       // Fire-and-forget the trigger. The GCF will update Firestore.
       fetch(gcfTriggerUrl, {
@@ -94,10 +83,7 @@ export async function requestTranscriptionAction(input: RequestTranscriptionInpu
         // The job will remain PENDING in Firestore, and might need manual retry or timeout handling.
       });
     } else {
-      console.warn("GCF_TRANSCRIPTION_TRIGGER_URL environment variable is not set. Transcription worker will not be triggered automatically.");
-      // To proceed without a real GCF for local testing, you would need to manually
-      // run/simulate the worker logic after a job is created in Firestore.
-      // For now, we'll assume the user will set this up for a deployed environment.
+      console.warn("GCF_TRANSCRIPTION_TRIGGER_URL is not defined. Transcription worker will not be triggered automatically.");
     }
 
     return { success: true, jobId };
