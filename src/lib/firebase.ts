@@ -5,8 +5,9 @@ import { getFirestore } from 'firebase/firestore';
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  // Hardcoding for debugging - if this works, the .env loading is the issue.
+  projectId: "transcript-studio-4drhv",
+  storageBucket: "transcript-studio-4drhv.firebasestorage.app",
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
@@ -14,7 +15,7 @@ const firebaseConfig = {
 // On the client-side, log the configuration that is being used.
 // This will help us debug if the .env variables are being loaded correctly.
 if (typeof window !== 'undefined') {
-  console.log('Firebase Config Loaded:', firebaseConfig);
+  console.log('Firebase Config being used for initialization:', firebaseConfig);
 }
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
