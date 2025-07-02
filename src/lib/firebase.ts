@@ -17,10 +17,6 @@ const firebaseConfig = {
 // On the client-side, log the configuration that is being used to help with debugging.
 if (typeof window !== 'undefined') {
   console.log('Firebase Config being used for initialization:', firebaseConfig);
-  if (firebaseConfig.apiKey === "YOUR_API_KEY_HERE" || !firebaseConfig.apiKey) {
-    console.error("Firebase config is using placeholder values. Please replace them in src/lib/firebase.ts");
-    alert("CRITICAL: Firebase is not configured. Please add your project credentials to src/lib/firebase.ts");
-  }
 }
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
