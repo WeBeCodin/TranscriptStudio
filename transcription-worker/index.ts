@@ -1,30 +1,95 @@
-import type { Request, Response } from 'express';
-import * as admin from 'firebase-admin';
-import { generateTranscript } from './generate-transcript';
-import type { Transcript } from './types';
+// This file is being replaced by a consolidated index.js for the Google Cloud Function.
+const admin = require('firebase-admin');
+const { genkit, z } = require('genkit');
+const { googleAI } = require('@genkit-ai/googleai');
 
+// -- Start genkit.js logic --
+const ai = genkit({
+  plugins: [googleAI()],
+  model: 'googleai/gemini-2.0-flash',
+});
+// -- End genkit.js logic --
+
+// -- Start generate-transcript.js logic --
+const GenerateTranscriptInputSchema = z.object({
+  gcsUri: z.string().describe('The Google Cloud Storage URI of the video file (e.g., gs://bucket-name/file-name).'),
+});
+
+const WordSchema = z.object({
+  text: z.string().describe('The transcribed word.'),
+  start: z.number().describe('Start time of the word in seconds.'),
+  end: z.number().describe('End time of the word in seconds.'),
+  speaker: z.number().optional().describe('Speaker ID (e.g., 0, 1).'),
+});
+
+const GenerateTranscriptOutputSchema = z.object({
+  words: z.array(WordSchema).describe('An array of word objects with timestamps.'),
+});
+
+const generateTranscriptFlow = ai.defineFlow(
+  {
+    name: 'generateTranscriptFlow',
+    inputSchema: GenerateTranscriptInputSchema,
+    outputSchema: GenerateTranscriptOutputSchema,
+  },
+  async (input) => {
+    const { output } = await ai.generate({
+        model: 'googleai/gemini-1.5-flash',
+        prompt: [
+            { text: `You are an expert transcriptionist. Your task is to generate a precise, time-coded transcript from the provided media file.
+
+- Identify different speakers and assign a unique speaker ID to each one (e.g., 0, 1, 2).
+- Analyze the media file and return a structured transcript with an array of word objects. 
+- Each object must contain the word's text, its start and end time in seconds, and the corresponding speaker ID.
+
+The output MUST be a valid JSON object that adheres to the provided schema. Do not include any markdown formatting like \`\`\`json.` },
+            { media: { uri: input.gcsUri } }
+        ],
+        output: {
+            format: 'json',
+            schema: GenerateTranscriptOutputSchema,
+        }
+    });
+    
+    if (!output) {
+        throw new Error(
+            'The AI model failed to generate a valid transcript. This might be due to an issue with the media file or a temporary model problem. Please try again with a different video.'
+        );
+    }
+    return output;
+  }
+);
+// -- End generate-transcript.js logic --
+
+// -- Start index.js (worker) logic --
 // Initialize Firebase Admin SDK if not already initialized
 if (admin.apps.length === 0) {
   admin.initializeApp();
 }
 const db = admin.firestore();
 
-interface TranscribeWorkerInput {
-  jobId: string;
-  gcsUri: string;
-}
-
 /**
  * Google Cloud Function (HTTP Triggered) to process video transcription.
- * Expects a POST request with JSON body: { jobId: string, gcsUri: string }
+ * This is the entry point.
  */
-export async function transcribeVideoWorker(req: Request, res: Response): Promise<void> {
+exports.transcribeVideoWorker = async (req, res) => {
+  // Set CORS headers to allow requests from your web app
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    // Handle preflight requests
+    res.status(204).send('');
+    return;
+  }
+  
   if (req.method !== 'POST') {
     res.status(405).send('Method Not Allowed');
     return;
   }
 
-  const { jobId, gcsUri } = req.body as TranscribeWorkerInput;
+  const { jobId, gcsUri } = req.body;
 
   if (!jobId || !gcsUri) {
     res.status(400).send('Missing jobId or gcsUri in request body.');
@@ -34,22 +99,17 @@ export async function transcribeVideoWorker(req: Request, res: Response): Promis
   const jobRef = db.collection("transcriptionJobs").doc(jobId);
 
   try {
-    // 1. Update job status to PROCESSING
     await jobRef.update({
       status: 'PROCESSING',
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // 2. Perform transcription
-    // This now relies on the GCF's environment having ADC (Application Default Credentials)
-    // correctly set up with access to the Google AI services.
-    const transcriptData: Transcript = await generateTranscript({ gcsUri });
+    const transcriptData = await generateTranscriptFlow({ gcsUri });
 
     if (!transcriptData || !transcriptData.words) {
         throw new Error('AI model returned invalid transcript data.');
     }
 
-    // 3. Update job with COMPLETED status and transcript
     await jobRef.update({
       status: 'COMPLETED',
       transcript: transcriptData,
@@ -59,19 +119,20 @@ export async function transcribeVideoWorker(req: Request, res: Response): Promis
     console.log(`Job ${jobId} completed successfully.`);
     res.status(200).send({ success: true, message: `Job ${jobId} processed.` });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error(`Error processing job ${jobId}:`, error);
     
-    // 4. Update job with FAILED status and error message
+    const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred during transcription.';
+
     await jobRef.update({
       status: 'FAILED',
-      error: error.message || 'An unknown error occurred during transcription.',
+      error: errorMessage,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }).catch(updateError => {
-        // Log if updating Firestore itself fails
         console.error(`Failed to update job ${jobId} to FAILED status:`, updateError);
     });
 
-    res.status(500).send({ success: false, error: `Failed to process job ${jobId}: ${error.message}` });
+    res.status(500).send({ success: false, error: `Failed to process job ${jobId}: ${errorMessage}` });
   }
-}
+};
+// -- End index.js (worker) logic --
