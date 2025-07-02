@@ -11,10 +11,11 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// Helpful error for developers if the storage bucket isn't set.
-if (!firebaseConfig.storageBucket) {
-  console.error(
-    'Firebase config error: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET is not set or not exposed to the client. Please check your .env file, ensure the variable name is prefixed with NEXT_PUBLIC_, and restart the development server.'
+// More aggressive check to make sure the env var is loaded on the client.
+// This will halt the app and show a clear error if the variable is missing.
+if (typeof window !== 'undefined' && !firebaseConfig.storageBucket) {
+  throw new Error(
+    'FATAL: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET is not defined. The app cannot start. Please check your .env file and restart the development server.'
   );
 }
 
