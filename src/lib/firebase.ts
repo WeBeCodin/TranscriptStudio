@@ -11,14 +11,6 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// More aggressive check to make sure the env var is loaded on the client.
-// This will halt the app and show a clear error if the variable is missing.
-if (typeof window !== 'undefined' && !firebaseConfig.storageBucket) {
-  throw new Error(
-    'FATAL: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET is not defined. The app cannot start. Please check your .env file and restart the development server.'
-  );
-}
-
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const storage = getStorage(app);
 const db = getFirestore(app);
