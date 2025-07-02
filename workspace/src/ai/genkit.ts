@@ -1,12 +1,12 @@
 import {genkit} from 'genkit';
 import {googleAI} from '@genkit-ai/googleai';
 
-// IMPORTANT: Replace this placeholder with your actual Google AI API key.
-// This is a temporary workaround because the .env file is not being loaded.
-const GOOGLE_API_KEY = "AIzaSyAYTtmqjVYRy8SpVirvjUQYraVjOL_aW2E"; 
+// This loads the GOOGLE_API_KEY from your .env.local file.
+// Make sure it's set there.
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY; 
 
-if (GOOGLE_API_KEY === "AIzaSyAYTtmqjVYRy8SpVirvjUQYraVjOL_aW2E") {
-    console.warn("Using placeholder Google API Key in src/ai/genkit.ts. Please replace it with your actual key for the AI features to work.");
+if (!GOOGLE_API_KEY || GOOGLE_API_KEY === "AIzaSyAYTtmqjVYRy8SpVirvjUQYraVjOL_aW2E") {
+    console.warn("Using placeholder or missing Google API Key. Please set GOOGLE_API_KEY in your .env.local file for the AI features to work.");
 }
 
 export const ai = genkit({

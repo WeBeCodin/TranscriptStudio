@@ -5,8 +5,6 @@ import { suggestHotspots, SuggestHotspotsInput } from '@/ai/flows/suggest-hotspo
 import { generateVideoBackground, GenerateVideoBackgroundInput } from '@/ai/flows/generate-video-background';
 
 export async function generateTranscriptFromGcsAction(input: GenerateTranscriptInput) {
-  // The API key check is now handled by the Genkit initialization.
-  // This check is removed to prevent crashes when the .env file isn't loading.
   try {
     const transcript = await generateTranscript(input);
     return { success: true, data: transcript };
@@ -35,9 +33,6 @@ interface RequestTranscriptionInput {
 }
 
 export async function requestTranscriptionAction(input: RequestTranscriptionInput): Promise<{ success: boolean; jobId?: string; error?: string }> {
-  // The API key check is now handled by the Genkit initialization.
-  // This check is removed to prevent crashes when the .env file isn't loading.
-
   const { gcsUri, jobId } = input;
 
   if (!gcsUri || !jobId) {
@@ -56,8 +51,8 @@ export async function requestTranscriptionAction(input: RequestTranscriptionInpu
 
     await setDoc(jobRef, newJob);
 
-    // Hardcoding the GCF URL as a workaround for .env loading issues.
-    const gcfTriggerUrl = "https://transcriptworker-371403164462.europe-west1.run.app";
+    // This URL is loaded from your .env.local file
+    const gcfTriggerUrl = process.env.GCF_TRANSCRIPTION_TRIGGER_URL;
 
     if (gcfTriggerUrl) {
       // Fire-and-forget the trigger. The GCF will update Firestore.
@@ -83,7 +78,7 @@ export async function requestTranscriptionAction(input: RequestTranscriptionInpu
         // The job will remain PENDING in Firestore, and might need manual retry or timeout handling.
       });
     } else {
-      console.warn("GCF_TRANSCRIPTION_TRIGGER_URL is not defined. Transcription worker will not be triggered automatically.");
+      console.warn("GCF_TRANSCRIPTION_TRIGGER_URL is not defined in .env.local. Transcription worker will not be triggered automatically.");
     }
 
     return { success: true, jobId };
