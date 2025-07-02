@@ -1,33 +1,21 @@
+
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getStorage } from 'firebase/storage';
 import { getFirestore } from 'firebase/firestore';
 
-// Construct the configuration object from environment variables.
+// --- URGENT: PASTE YOUR FIREBASE CONFIGURATION HERE ---
+// This is a temporary but necessary workaround because the .env.local file is not being loaded.
+// Find these values in your Firebase project settings under "General".
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  apiKey: "YOUR_API_KEY_HERE",
+  authDomain: "YOUR_AUTH_DOMAIN_HERE",
+  projectId: "YOUR_PROJECT_ID_HERE",
+  storageBucket: "YOUR_STORAGE_BUCKET_HERE",
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID_HERE",
+  appId: "YOUR_APP_ID_HERE"
 };
+// --- END OF CONFIGURATION SECTION ---
 
-// Add a console log to see what the browser is receiving.
-if (typeof window !== 'undefined') {
-  console.log("Firebase Config Loaded by Browser:", firebaseConfig);
-
-  // A non-crashing check
-  if (
-    !firebaseConfig.apiKey ||
-    !firebaseConfig.authDomain ||
-    !firebaseConfig.projectId ||
-    !firebaseConfig.storageBucket
-  ) {
-    console.error(
-      'CRITICAL: Firebase configuration is missing or incomplete. This will cause app failures. Check that your .env.local file is in the project root and the dev server has been restarted.'
-    );
-  }
-}
 
 // Initialize Firebase App safely, preventing re-initialization on hot reloads.
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
