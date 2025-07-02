@@ -11,6 +11,12 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
+// On the client-side, log the configuration that is being used.
+// This will help us debug if the .env variables are being loaded correctly.
+if (typeof window !== 'undefined') {
+  console.log('Firebase Config Loaded:', firebaseConfig);
+}
+
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const storage = getStorage(app);
 const db = getFirestore(app);
