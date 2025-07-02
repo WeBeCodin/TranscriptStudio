@@ -1,12 +1,14 @@
+
 import {genkit} from 'genkit';
 import {googleAI} from '@genkit-ai/googleai';
 
-// This loads the GOOGLE_API_KEY from your .env.local file.
-// Make sure it's set there.
-const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY; 
+// Correctly and securely access the server-side environment variable.
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
 
-if (!GOOGLE_API_KEY || GOOGLE_API_KEY === "AIzaSyAYTtmqjVYRy8SpVirvjUQYraVjOL_aW2E") {
-    console.warn("Using placeholder or missing Google API Key. Please set GOOGLE_API_KEY in your .env.local file for the AI features to work.");
+// Add a server-side check to ensure the key is present.
+if (!GOOGLE_API_KEY) {
+  // This error will appear in the server logs, not the browser console.
+  throw new Error('Server configuration error: GOOGLE_API_KEY is not set in the environment.');
 }
 
 export const ai = genkit({
