@@ -2,20 +2,26 @@
 
 import * as React from 'react';
 import Image from 'next/image';
+import { storage } from '@/lib/firebase'; // For getDownloadURL
+import { ref as storageRef, getDownloadURL } from 'firebase/storage'; // For getDownloadURL
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { TranscriptViewer } from '@/components/transcript-viewer';
-import type { BrandOptions, Hotspot, Selection, Transcript, Word } from '@/lib/types';
+import type { BrandOptions, Hotspot, Selection, Transcript, Word, ClippingJob } from '@/lib/types'; // Added ClippingJob
 import { formatTime, cn } from '@/lib/utils';
-import { Scissors, RectangleHorizontal, RectangleVertical, Square, Wand2, RefreshCw } from 'lucide-react';
+import { Scissors, RectangleHorizontal, RectangleVertical, Square, Wand2, RefreshCw, Download } from 'lucide-react'; // Added Download
 import { toast } from '@/hooks/use-toast';
-import { generateVideoBackgroundAction } from '@/app/actions';
+import { generateVideoBackgroundAction, requestVideoClipAction } from '@/app/actions'; // Added requestVideoClipAction
 import { Slider } from '@/components/ui/slider';
+import { db } from '@/lib/firebase'; // Added db for Firestore
+import { doc, onSnapshot, Timestamp } from 'firebase/firestore'; // Added Firestore specific imports
+
 
 interface EditorProps {
-  videoUrl: string;
-  transcript: Transcript;
+  videoUrl: string; // This is the blob URL for local playback
+  gcsVideoUri: string | null; // This is the GCS URI for server-side processing
+  transcript: Transcript | null; // Made transcript nullable in previous steps
   hotspots: Hotspot[] | null;
   brandOptions: BrandOptions;
 }
@@ -36,9 +42,19 @@ export function Editor({ videoUrl, transcript, hotspots, brandOptions }: EditorP
   const [generativeBg, setGenerativeBg] = React.useState<string | null>(null);
   const [isGeneratingBg, setIsGeneratingBg] = React.useState(false);
 
+  // State for clipping
+  const [currentClippingJobId, setCurrentClippingJobId] = React.useState<string | null>(null);
+  const [isClipping, setIsClipping] = React.useState(false);
+  const [clipDownloadUrl, setClipDownloadUrl] = React.useState<string | null>(null);
+  const [clippingStatusMessage, setClippingStatusMessage] = React.useState('');
+
 
   React.useEffect(() => {
-    setAllWords(transcript.words);
+    if (transcript && transcript.words) {
+      setAllWords(transcript.words);
+    } else {
+      setAllWords([]);
+    }
   }, [transcript]);
   
   React.useEffect(() => {
@@ -60,14 +76,124 @@ export function Editor({ videoUrl, transcript, hotspots, brandOptions }: EditorP
     }
   };
   
-  const handleCreateClip = () => {
-    if (!selection) return;
-    toast({
-      title: "Clip Ready for Download!",
-      description: "In a real app, this would be a server-rendered video.",
+  // Firestore listener for clipping job
+  React.useEffect(() => {
+    if (!currentClippingJobId) return;
+
+    setClippingStatusMessage('Clipping job requested. Waiting for updates...');
+    const unsubscribe = onSnapshot(doc(db, "clippingJobs", currentClippingJobId), async (jobDoc) => {
+      if (jobDoc.exists()) {
+        const jobData = jobDoc.data() as Omit<ClippingJob, 'id'> & { createdAt: Timestamp, updatedAt: Timestamp };
+        setClippingStatusMessage(`Clip status: ${jobData.status.toLowerCase()}...`);
+
+        switch (jobData.status) {
+          case 'PROCESSING':
+            setIsClipping(true);
+            setClippingStatusMessage('Your clip is being processed...');
+            break;
+          case 'COMPLETED':
+            if (jobData.clippedVideoGcsUri) {
+              try {
+                const downloadUrl = await getDownloadURL(storageRef(storage, jobData.clippedVideoGcsUri));
+                setClipDownloadUrl(downloadUrl);
+                toast({
+                  title: "Clip Ready!",
+                  description: "Your video clip is ready for download.",
+                });
+                setClippingStatusMessage('Clip ready for download!');
+              } catch (error) {
+                console.error("Error getting download URL:", error);
+                toast({ variant: "destructive", title: "Error", description: "Could not get clip download URL." });
+                setClippingStatusMessage('Error: Could not get download URL.');
+              }
+            } else {
+              toast({ variant: "destructive", title: "Error", description: "Clipping completed but no URI found." });
+              setClippingStatusMessage('Error: Clip URI missing.');
+            }
+            setIsClipping(false);
+            setCurrentClippingJobId(null); // Clear job ID
+            unsubscribe();
+            break;
+          case 'FAILED':
+            console.error('Clipping job failed:', jobData.error);
+            toast({
+              variant: "destructive",
+              title: "Clipping Failed",
+              description: jobData.error || "The video clip could not be generated.",
+            });
+            setClippingStatusMessage(`Failed: ${jobData.error || "Unknown error"}`);
+            setIsClipping(false);
+            setCurrentClippingJobId(null); // Clear job ID
+            unsubscribe();
+            break;
+          case 'PENDING':
+            setIsClipping(true);
+            setClippingStatusMessage('Clip job is pending...');
+            break;
+        }
+      } else {
+        console.warn("Clipping job document not found for ID:", currentClippingJobId);
+        // Potentially handle this, though it shouldn't happen if created correctly
+      }
+    }, (error) => {
+      console.error("Error listening to clipping job updates:", error);
+      toast({
+        variant: "destructive",
+        title: "Connection Error",
+        description: "Could not listen for clipping updates.",
+      });
+      setIsClipping(false);
+      setCurrentClippingJobId(null);
+      setClippingStatusMessage('Error: Connection failed.');
     });
-    console.log('Creating clip with options:', { selection, aspectRatio, zoom, pan, fillMode });
-  }
+
+    return () => unsubscribe();
+  }, [currentClippingJobId, toast]);
+
+  const handleCreateClip = async () => {
+    if (!selection || !gcsVideoUri) {
+      toast({
+        variant: "destructive",
+        title: "Cannot Create Clip",
+        description: !gcsVideoUri ? "Video GCS URI is missing." : "No portion of the video is selected.",
+      });
+      return;
+    }
+    if (isClipping) return;
+
+    setIsClipping(true);
+    setClipDownloadUrl(null); // Reset previous download URL
+    setClippingStatusMessage('Requesting video clip...');
+    toast({
+      title: "Requesting Clip...",
+      description: "Your video clip request is being sent.",
+    });
+
+    try {
+      const result = await requestVideoClipAction({
+        gcsUri: gcsVideoUri,
+        startTime: selection.start,
+        endTime: selection.end,
+        // outputFormat: 'mp4', // Default is mp4 in action
+      });
+
+      if (result.success && result.jobId) {
+        setCurrentClippingJobId(result.jobId);
+        // useEffect listener will pick up from here
+      } else {
+        throw new Error(result.error || "Failed to start clipping job.");
+      }
+    } catch (error: any) {
+      console.error("Failed to request video clip:", error);
+      toast({
+        variant: "destructive",
+        title: "Clipping Request Failed",
+        description: error.message || "An unknown error occurred.",
+      });
+      setIsClipping(false);
+      setClippingStatusMessage(`Error: ${error.message}`);
+    }
+  };
 
   const handlePanMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (zoom <= 1 || aspectRatio === 'original') return;
@@ -244,13 +370,25 @@ export function Editor({ videoUrl, transcript, hotspots, brandOptions }: EditorP
                     <p className="font-semibold font-headline">Duration</p>
                     <p className="font-mono text-lg font-medium">{formatTime(selectionDuration)}</p>
                 </div>
-                <Button onClick={handleCreateClip} disabled={!selection} size="lg">
+                {clipDownloadUrl ? (
+                  <Button asChild size="lg">
+                    <a href={clipDownloadUrl} download target="_blank" rel="noopener noreferrer">
+                      <Download className="mr-2 h-5 w-5" />
+                      Download Clip
+                    </a>
+                  </Button>
+                ) : (
+                  <Button onClick={handleCreateClip} disabled={!selection || isClipping || !gcsVideoUri} size="lg">
                     <Scissors className="mr-2 h-5 w-5"/>
-                    Create & Download Clip
-                </Button>
+                    {isClipping ? 'Clipping...' : 'Create Clip'}
+                  </Button>
+                )}
             </div>
           </CardContent>
         </Card>
+        {clippingStatusMessage && (
+          <p className="text-sm text-muted-foreground text-center mt-2">{clippingStatusMessage}</p>
+        )}
       </div>
 
       <div className="lg:col-span-1 h-full">
