@@ -7,7 +7,8 @@ import { generateVideoBackground, GenerateVideoBackgroundInput } from '@/ai/flow
 
 import { db } from '@/lib/firebase';
 import { collection, doc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
-import type { TranscriptionJob } from '@/lib/types';
+import type { TranscriptionJob, ClippingJob } from '@/lib/types';
+import { v4 as uuidv4 } from 'uuid';
 
 export async function generateTranscriptFromGcsAction(input: GenerateTranscriptInput) {
   try {
@@ -35,10 +36,8 @@ export async function requestTranscriptionAction(input: RequestTranscriptionInpu
     return { success: false, error: "Missing GCS URI or Job ID." };
   }
   
-  // Access the server-side environment variable directly within the action.
   const gcfTriggerUrl = process.env.GCF_TRANSCRIPTION_TRIGGER_URL;
 
-  // Validate the variable's presence at the time of execution.
   if (!gcfTriggerUrl) {
     console.error('Server configuration error: GCF_TRANSCRIPTION_TRIGGER_URL is not set.');
     return { 
@@ -59,7 +58,6 @@ export async function requestTranscriptionAction(input: RequestTranscriptionInpu
 
     await setDoc(jobRef, newJob);
 
-    // Fire-and-forget the trigger. The GCF will update Firestore.
     fetch(gcfTriggerUrl, {
       method: 'POST',
       body: JSON.stringify({ jobId, gcsUri }),
@@ -144,3 +142,61 @@ export async function generateVideoBackgroundAction(input: GenerateVideoBackgrou
       };
     }
 }
+
+interface RequestVideoClipInput {
+    gcsUri: string;
+    startTime: number;
+    endTime: number;
+    outputFormat?: string;
+}
+
+export async function requestVideoClipAction(input: RequestVideoClipInput): Promise<{ success: boolean; jobId?: string; error?: string }> {
+    const { gcsUri, startTime, endTime, outputFormat = 'mp4' } = input;
+    const jobId = uuidv4();
+
+    if (!gcsUri) {
+        return { success: false, error: 'GCS URI is required to clip the video.' };
+    }
+    if (startTime == null || endTime == null) {
+        return { success: false, error: 'Start and end times are required.' };
+    }
+
+    const gcfTriggerUrl = process.env.GCF_CLIPPING_TRIGGER_URL;
+    if (!gcfTriggerUrl) {
+        console.error('Server configuration error: GCF_CLIPPING_TRIGGER_URL is not set.');
+        return { success: false, error: 'The video clipping service is not configured correctly.' };
+    }
+
+    try {
+        const jobRef = doc(db, "clippingJobs", jobId);
+        
+        const newJob: Omit<ClippingJob, 'id' | 'clippedVideoGcsUri' | 'error'> & { createdAt: any, updatedAt: any } = {
+            sourceVideoGcsUri: gcsUri,
+            startTime,
+            endTime,
+            outputFormat,
+            status: 'PENDING',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+        };
+
+        await setDoc(jobRef, newJob);
+
+        fetch(gcfTriggerUrl, {
+            method: 'POST',
+            body: JSON.stringify({ jobId, ...input }),
+            headers: { 'Content-Type': 'application/json' },
+        }).catch(triggerError => {
+            console.error(`Network or other error triggering GCF for clipping job ${jobId}:`, triggerError);
+            // We fire-and-forget, but if the trigger fails immediately, we can try to update the job status.
+            jobRef.update({ status: 'FAILED', error: 'Failed to trigger the clipping worker.' }).catch(() => {});
+        });
+
+        return { success: true, jobId };
+    } catch (error) {
+        console.error('Error requesting video clip job:', error);
+        return { success: false, error: 'Failed to create the video clipping job.' };
+    }
+}
+
+    

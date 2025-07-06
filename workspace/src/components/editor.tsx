@@ -1,3 +1,4 @@
+
 'use client';
 
 import * as React from 'react';
@@ -12,11 +13,7 @@ import type { BrandOptions, Hotspot, Selection, Transcript, Word, ClippingJob } 
 import { formatTime, cn } from '@/lib/utils';
 import { Scissors, RectangleHorizontal, RectangleVertical, Square, Wand2, RefreshCw, Download } from 'lucide-react'; // Added Download
 import { toast } from '@/hooks/use-toast';
-<<<<<<< HEAD
 import { generateVideoBackgroundAction, requestVideoClipAction } from '@/app/actions'; // Added requestVideoClipAction
-=======
-import { generateVideoBackgroundAction } from '@/app/actions'; // Restored import
->>>>>>> 7eb7dc0 (I see this error with the app, reported by NextJS, please fix it. The er)
 import { Slider } from '@/components/ui/slider';
 import { db } from '@/lib/firebase'; // Added db for Firestore
 import { doc, onSnapshot, Timestamp } from 'firebase/firestore'; // Added Firestore specific imports
@@ -30,7 +27,7 @@ interface EditorProps {
   brandOptions: BrandOptions;
 }
 
-export function Editor({ videoUrl, transcript, hotspots, brandOptions }: EditorProps) {
+export function Editor({ videoUrl, gcsVideoUri, transcript, hotspots, brandOptions }: EditorProps) {
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const [currentTime, setCurrentTime] = React.useState(0);
   const [selection, setSelection] = React.useState<Selection | null>(null);
@@ -54,17 +51,10 @@ export function Editor({ videoUrl, transcript, hotspots, brandOptions }: EditorP
 
 
   React.useEffect(() => {
-<<<<<<< HEAD
     if (transcript && transcript.words) {
       setAllWords(transcript.words);
     } else {
       setAllWords([]);
-=======
-    if (transcript && transcript.words) { 
-      setAllWords(transcript.words);
-    } else {
-      setAllWords([]); 
->>>>>>> 7eb7dc0 (I see this error with the app, reported by NextJS, please fix it. The er)
     }
   }, [transcript]);
   
@@ -143,7 +133,6 @@ export function Editor({ videoUrl, transcript, hotspots, brandOptions }: EditorP
         }
       } else {
         console.warn("Clipping job document not found for ID:", currentClippingJobId);
-        // Potentially handle this, though it shouldn't happen if created correctly
       }
     }, (error) => {
       console.error("Error listening to clipping job updates:", error);
@@ -240,8 +229,6 @@ export function Editor({ videoUrl, transcript, hotspots, brandOptions }: EditorP
 
     try {
         const canvas = document.createElement('canvas');
-<<<<<<< HEAD
-=======
         if (videoRef.current.readyState < videoRef.current.HAVE_METADATA) {
             await new Promise<void>(resolve => {
                 if (videoRef.current) {
@@ -252,23 +239,11 @@ export function Editor({ videoUrl, transcript, hotspots, brandOptions }: EditorP
             });
         }
 
->>>>>>> 7eb7dc0 (I see this error with the app, reported by NextJS, please fix it. The er)
         canvas.width = videoRef.current.videoWidth;
         canvas.height = videoRef.current.videoHeight;
         const ctx = canvas.getContext('2d');
         if (!ctx) throw new Error('Could not get canvas context');
         
-<<<<<<< HEAD
-        // Seek to the middle of the video for a representative frame
-        videoRef.current.currentTime = videoRef.current.duration / 2;
-        
-        // Wait for the frame to be ready
-        await new Promise(resolve => {
-          videoRef.current!.onseeked = () => resolve(true);
-        });
-
-        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-=======
         if (videoRef.current.duration && isFinite(videoRef.current.duration)) {
             videoRef.current.currentTime = videoRef.current.duration / 2;
         } else {
@@ -286,27 +261,18 @@ export function Editor({ videoUrl, transcript, hotspots, brandOptions }: EditorP
         if(videoRef.current) {
           ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
         }
->>>>>>> 7eb7dc0 (I see this error with the app, reported by NextJS, please fix it. The er)
         const frameDataUri = canvas.toDataURL('image/jpeg');
 
         const result = await generateVideoBackgroundAction({ frameDataUri });
 
-<<<<<<< HEAD
-        if (result.success && result.data) {
-=======
         if (result.success && result.data && result.data.backgroundDataUri) {
->>>>>>> 7eb7dc0 (I see this error with the app, reported by NextJS, please fix it. The er)
             setGenerativeBg(result.data.backgroundDataUri);
             toast({
                 title: "AI Background Generated!",
                 description: "Your new background has been applied.",
             });
         } else {
-<<<<<<< HEAD
-            throw new Error(result.error || 'Failed to generate background.');
-=======
             throw new Error(result.error || 'Failed to generate background or missing backgroundDataUri.');
->>>>>>> 7eb7dc0 (I see this error with the app, reported by NextJS, please fix it. The er)
         }
     } catch (error) {
         console.error('Generative fill failed:', error);
@@ -324,7 +290,6 @@ export function Editor({ videoUrl, transcript, hotspots, brandOptions }: EditorP
   const selectionDuration = selection ? selection.end - selection.start : 0;
 
   return (
-    // JSX is the same as you provided earlier 
     <div className="w-full max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
       <div className="lg:col-span-2 flex flex-col gap-4 h-full">
         <div className="flex-grow flex flex-col gap-4">
