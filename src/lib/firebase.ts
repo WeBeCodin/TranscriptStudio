@@ -7,12 +7,12 @@ import { getFirestore } from 'firebase/firestore';
 // This is a temporary but necessary workaround because the .env.local file is not being loaded.
 // Find these values in your Firebase project settings under "General".
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY_HERE",
-  authDomain: "YOUR_AUTH_DOMAIN_HERE",
-  projectId: "YOUR_PROJECT_ID_HERE",
-  storageBucket: "YOUR_STORAGE_BUCKET_HERE",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID_HERE",
-  appId: "YOUR_APP_ID_HERE"
+  apiKey: "AIzaSyDC5PpahjVXu4L8GPb9C04k0k78hq5IVkk",
+  authDomain: "transcript-studio-4drhv.firebaseapp.com",
+  projectId: "transcript-studio-4drhv",
+  storageBucket: "transcript-studio-4drhv.firebasestorage.app",
+  messagingSenderId: "371403164462",
+  appId: "1:371403164462:web:1bac6e64e9f8e48d8308bf"
 };
 // --- END OF CONFIGURATION SECTION ---
 

@@ -6,7 +6,7 @@ import { VideoUploader } from '@/components/video-uploader';
 import { Editor } from '@/components/editor';
 import { storage } from '@/lib/firebase';
 import { ref, uploadBytesResumable } from 'firebase/storage'; 
-import type { FirebaseError } from 'firebase/app'; // Using FirebaseError
+import type { FirebaseError } from 'firebase/app';
 import { requestTranscriptionAction, suggestHotspotsAction, ActionResult } from '@/app/actions'; 
 import type { BrandOptions, Hotspot, Transcript, TranscriptionJob, SuggestHotspotsOutput } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
@@ -35,7 +35,9 @@ export default function Home() {
     let unsubscribeFromTranscriptionJob: (() => void) | undefined = undefined;
     if (!currentTranscriptionJobId) return;
 
+    setIsProcessing(true); 
     setProcessingStatus('Transcription requested. Waiting for updates...');
+    
     unsubscribeFromTranscriptionJob = onSnapshot(doc(db, "transcriptionJobs", currentTranscriptionJobId), async (jobDoc) => {
       if (jobDoc.exists()) {
         const jobData = jobDoc.data() as Omit<TranscriptionJob, 'id' | 'createdAt' | 'updatedAt'> & { createdAt: Timestamp, updatedAt: Timestamp };
@@ -87,7 +89,9 @@ export default function Home() {
               title: "Transcription Failed",
               description: jobData.error || "The AI failed to transcribe the video.",
             });
-            resetState(); 
+            setIsProcessing(false);
+            setProcessingStatus(`Transcription failed: ${jobData.error || "Unknown error"}`);
+            setCurrentTranscriptionJobId(null); 
             if (typeof unsubscribeFromTranscriptionJob === 'function') unsubscribeFromTranscriptionJob();
             break;
           case 'PENDING':
@@ -97,6 +101,7 @@ export default function Home() {
       } else {
         console.warn("Transcription job document not found for ID:", currentTranscriptionJobId);
         setIsProcessing(false); 
+        setProcessingStatus('Transcription job details not found.');
         setCurrentTranscriptionJobId(null);
         if (typeof unsubscribeFromTranscriptionJob === 'function') unsubscribeFromTranscriptionJob();
       }
@@ -107,7 +112,9 @@ export default function Home() {
         title: "Connection Error",
         description: "Could not listen for transcription updates.",
       });
-      resetState(); 
+      setIsProcessing(false);
+      setProcessingStatus('Error listening for transcription updates.');
+      setCurrentTranscriptionJobId(null); 
     });
 
     return () => {
@@ -126,7 +133,7 @@ export default function Home() {
     setIsProcessing(false);
     setProcessingStatus('');
     setUploadProgress(0);
-    setCurrentTranscriptionJobId(null); 
+    setCurrentTranscriptionJobId(null);
   };
 
   const handleFileUpload = async (file: File) => {
@@ -141,10 +148,9 @@ export default function Home() {
     setIsProcessing(true); 
     setProcessingStatus('Starting upload...');
     setUploadProgress(0);
-    let uploadedGcsPath = ""; 
 
     try {
-      uploadedGcsPath = await new Promise<string>((resolve, reject) => {
+      await new Promise<string>((resolve, reject) => {
         const storagePath = `videos/${Date.now()}-${file.name}`;
         const fileRef = ref(storage, storagePath);
         const uploadTask = uploadBytesResumable(fileRef, file);
@@ -174,22 +180,21 @@ export default function Home() {
         );
       });
       
-      setProcessingStatus('Upload complete. Requesting transcript...');
-      const newTranscriptionJobId = uuidv4();
-      const transcriptRequestResult = await requestTranscriptionAction({ gcsUri: uploadedGcsPath, jobId: newTranscriptionJobId }) as ActionResult;
-
-      if (!transcriptRequestResult?.success || !transcriptRequestResult.jobId) {
-        const errorMessage = transcriptRequestResult?.error || 'Failed to request transcript generation due to an unknown issue.';
-        throw new Error(errorMessage);
-      }
-      setCurrentTranscriptionJobId(transcriptRequestResult.jobId);
+      // --- Transcription Request Disabled ---
+      setProcessingStatus('Upload complete! Ready for editing.');
+      setIsProcessing(false); 
+      toast({
+        title: "Upload Successful",
+        description: "Your video is ready for editing or clipping.",
+      });
+      // --- End of Disabled Transcription ---
 
     } catch (error: any) {
       console.error('File upload or processing request failed:', error);
       toast({
         variant: "destructive",
-        title: "Oh no! Something went wrong.",
-        description: error.message || "An unknown error occurred during setup.",
+        title: "Oh no! Something went wrong during upload.",
+        description: error.message || "An unknown error occurred.",
       });
       resetState(); 
     }
@@ -203,7 +208,7 @@ export default function Home() {
           <Editor
             videoUrl={videoUrl}
             gcsVideoUri={gcsVideoUri} 
-            transcript={transcript} 
+            transcript={transcript}
             hotspots={hotspots}
             brandOptions={brandOptions}
           />
