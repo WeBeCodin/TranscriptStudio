@@ -1,25 +1,32 @@
-
 'use server';
 
-import { generateTranscript, GenerateTranscriptInput } from '@/ai/flows/generate-transcript';
-import { suggestHotspots, SuggestHotspotsInput } from '@/ai/flows/suggest-hotspots';
+import { generateTranscript, GenerateTranscriptInput, GenerateTranscriptOutput } from '@/ai/flows/generate-transcript';
+import { suggestHotspots, SuggestHotspotsInput, SuggestHotspotsOutput } from '@/ai/flows/suggest-hotspots';
 import { generateVideoBackground, GenerateVideoBackgroundInput } from '@/ai/flows/generate-video-background';
 
 import { db } from '@/lib/firebase';
 import { collection, doc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
-import type { TranscriptionJob, ClippingJob } from '@/lib/types'; // Added ClippingJob
-import { v4 as uuidv4 } from 'uuid'; // For generating unique job IDs
+import type { TranscriptionJob, ClippingJob, JobStatus, Transcript } from '@/lib/types'; 
+import { v4 as uuidv4 } from 'uuid';
 
-export async function generateTranscriptFromGcsAction(input: GenerateTranscriptInput) {
+export type ActionResult<TData = null> = {
+  success: boolean;
+  data?: TData;
+  jobId?: string;
+  error?: string; 
+  debugMessage?: string;
+};
+
+export async function generateTranscriptFromGcsAction(input: GenerateTranscriptInput): Promise<ActionResult<GenerateTranscriptOutput>> {
   try {
     const transcript = await generateTranscript(input);
-    return { success: true, data: transcript };
-  } catch (error) {
+    return { success: true, data: transcript, debugMessage: "[ACTIONS.TS] generateTranscriptFromGcsAction: Success" };
+  } catch (error: any) {
     console.error('A critical error occurred in generateTranscriptFromGcsAction. Full error:', error);
-    const clientErrorMessage = 'The AI model failed to process the video. This could be an issue with the file, API permissions, or a temporary service problem. Please check the server logs for details.';
     return { 
       success: false, 
-      error: clientErrorMessage
+      error: `AI transcript generation failed: ${error.message || 'Unknown error'}`,
+      debugMessage: `[ACTIONS.TS] generateTranscriptFromGcsAction: FAILED - ${error.message}`
     };
   }
 }
@@ -29,17 +36,15 @@ interface RequestTranscriptionInput {
   jobId: string;
 }
 
-export async function requestTranscriptionAction(input: RequestTranscriptionInput): Promise<{ success: boolean; jobId?: string; error?: string }> {
+export async function requestTranscriptionAction(input: RequestTranscriptionInput): Promise<ActionResult> {
   const { gcsUri, jobId } = input;
 
   if (!gcsUri || !jobId) {
     return { success: false, error: "Missing GCS URI or Job ID." };
   }
   
-  // Access the server-side environment variable directly within the action.
   const gcfTriggerUrl = process.env.GCF_TRANSCRIPTION_TRIGGER_URL;
 
-  // Validate the variable's presence at the time of execution.
   if (!gcfTriggerUrl) {
     console.error('Server configuration error: GCF_TRANSCRIPTION_TRIGGER_URL is not set.');
     return { 
@@ -51,16 +56,15 @@ export async function requestTranscriptionAction(input: RequestTranscriptionInpu
   try {
     const jobRef = doc(db, "transcriptionJobs", jobId);
     
-    const newJob: Omit<TranscriptionJob, 'id' | 'transcript' | 'error'> & { createdAt: any; updatedAt: any } = {
+    const newJobData: Omit<TranscriptionJob, 'id' | 'transcript' | 'error'> & { createdAt: any; updatedAt: any } = {
       gcsUri,
-      status: 'PENDING',
+      status: 'PENDING' as JobStatus,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
 
-    await setDoc(jobRef, newJob);
+    await setDoc(jobRef, newJobData);
 
-    // Fire-and-forget the trigger. The GCF will update Firestore.
     fetch(gcfTriggerUrl, {
       method: 'POST',
       body: JSON.stringify({ jobId, gcsUri }),
@@ -80,7 +84,7 @@ export async function requestTranscriptionAction(input: RequestTranscriptionInpu
     });
 
     return { success: true, jobId };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error requesting transcription job:', error);
     const clientErrorMessage = error instanceof Error ? error.message : 'Failed to create transcription job in Firestore.';
     return { 
@@ -90,58 +94,163 @@ export async function requestTranscriptionAction(input: RequestTranscriptionInpu
   }
 }
 
-export async function getTranscriptionJobAction(jobId: string): Promise<{ success: boolean; job?: TranscriptionJob | null; error?: string }> {
+export async function getTranscriptionJobAction(jobId: string): Promise<ActionResult<TranscriptionJob | null>> {
   if (!jobId) {
-    return { success: false, error: "Job ID is required." };
+     return { success: false, error: "Job ID is required." };
   }
-
   try {
     const jobRef = doc(db, "transcriptionJobs", jobId);
     const jobSnap = await getDoc(jobRef);
-
     if (!jobSnap.exists()) {
-      return { success: true, job: null }; // Job not found is a valid case, not an error
+      return { success: true, data: null, debugMessage: `[ACTIONS.TS] getTranscriptionJobAction: Job ${jobId} not found.` }; 
     }
-
-    const jobData = jobSnap.data() as Omit<TranscriptionJob, 'id'> & { createdAt: any, updatedAt: any };
-
-    const job: TranscriptionJob = {
-      id: jobSnap.id,
-      ...jobData,
-      createdAt: jobData.createdAt?.toDate ? jobData.createdAt.toDate() : jobData.createdAt,
-      updatedAt: jobData.updatedAt?.toDate ? jobData.updatedAt.toDate() : jobData.updatedAt,
+    const jobDataFromDb = jobSnap.data() as Omit<TranscriptionJob, 'id' | 'createdAt' | 'updatedAt' | 'transcript' | 'error'> & { 
+        gcsUri: string; status: JobStatus; createdAt: any; updatedAt: any; transcript?: Transcript; error?: string; 
     };
-
-    return { success: true, job };
-  } catch (error) {
-    console.error('Error fetching transcription job:', error);
-    const clientErrorMessage = error instanceof Error ? error.message : 'Failed to fetch transcription job from Firestore.';
+    
+    const typedJob: TranscriptionJob = {
+      id: jobSnap.id,
+      gcsUri: jobDataFromDb.gcsUri,
+      status: jobDataFromDb.status,
+      transcript: jobDataFromDb.transcript, 
+      error: jobDataFromDb.error, 
+      createdAt: jobDataFromDb.createdAt?.toDate ? jobDataFromDb.createdAt.toDate() : jobDataFromDb.createdAt,
+      updatedAt: jobDataFromDb.updatedAt?.toDate ? jobDataFromDb.updatedAt.toDate() : jobDataFromDb.updatedAt,
+    };
+    return { success: true, data: typedJob, debugMessage: `[ACTIONS.TS] getTranscriptionJobAction: Job ${jobId} fetched.` };
+  } catch (error: any) {
     return { 
       success: false, 
-      error: clientErrorMessage
+      error: error.message || `Failed to fetch job ${jobId}.`,
+      debugMessage: `[ACTIONS.TS] getTranscriptionJobAction: Error fetching job ${jobId} - ${error.message}`
     };
   }
 }
 
-export async function suggestHotspotsAction(input: SuggestHotspotsInput) {
+export async function suggestHotspotsAction(input: SuggestHotspotsInput): Promise<ActionResult<SuggestHotspotsOutput>> { 
   try {
-    const hotspots = await suggestHotspots(input);
-    return { success: true, data: hotspots };
-  } catch (error) {
+    const hotspotsData = await suggestHotspots(input); 
+    if (!hotspotsData) {
+        return { success: false, error: 'AI failed to suggest hotspots.', data: [] as SuggestHotspotsOutput };
+    }
+    return { success: true, data: hotspotsData, debugMessage: "[ACTIONS.TS] suggestHotspotsAction: Success" }; 
+  } catch (error: any) {
     console.error('Error suggesting hotspots:', error);
-    return { success: true, data: [] };
+    return { 
+      success: false, 
+      error: error.message || 'Failed to suggest hotspots.',
+      data: [] as SuggestHotspotsOutput, 
+      debugMessage: `[ACTIONS.TS] suggestHotspotsAction: FAILED - ${error.message}`
+    };
   }
 }
 
-export async function generateVideoBackgroundAction(input: GenerateVideoBackgroundInput) {
+export async function generateVideoBackgroundAction(input: GenerateVideoBackgroundInput): Promise<ActionResult<{ backgroundDataUri: string }>> { 
+    let flowResultPayload;
     try {
-      const result = await generateVideoBackground(input);
-      return { success: true, data: result };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
+      flowResultPayload = await generateVideoBackground(input); 
+      if (flowResultPayload && typeof flowResultPayload.backgroundDataUri === 'string' && flowResultPayload.backgroundDataUri.startsWith('data:image/')) {
+        return { 
+          success: true, 
+          data: flowResultPayload, 
+          debugMessage: "[ACTIONS.TS] generateVideoBackgroundAction: Flow success, valid data URI."
+        };
+      } else {
+        return {
+          success: false,
+          error: 'AI flow did not return a valid background image URI.',
+          debugMessage: `[ACTIONS.TS] generateVideoBackgroundAction: Flow returned unexpected data: ${JSON.stringify(flowResultPayload)}`
+        };
+      }
+    } catch (error: any) {
+      const errorMessage = error.message || 'Unknown error in generateVideoBackground flow.';
       return { 
         success: false, 
-        error: errorMessage 
+        error: errorMessage,
+        debugMessage: `[ACTIONS.TS] generateVideoBackgroundAction: FAILED in flow call. Error: ${errorMessage}. Stack: ${error.stack}. FlowResult (if any): ${JSON.stringify(flowResultPayload)}` 
       };
     }
+}
+
+interface RequestVideoClipInput {
+  gcsUri: string;
+  startTime: number;
+  endTime: number;
+  outputFormat?: string;
+}
+
+export async function requestVideoClipAction(
+  input: RequestVideoClipInput
+): Promise<ActionResult> { 
+  const { gcsUri, startTime, endTime, outputFormat = 'mp4' } = input;
+
+  if (!gcsUri || typeof startTime !== 'number' || typeof endTime !== 'number') {
+    return { success: false, error: "Missing GCS URI, startTime, or endTime." };
+  }
+  if (startTime >= endTime) {
+    return { success: false, error: "Start time must be before end time." };
+  }
+  if (startTime < 0 || endTime < 0) {
+    return { success: false, error: "Start and end times must be positive." };
+  }
+
+  const gcfClipperTriggerUrl = process.env.GCF_CLIPPER_TRIGGER_URL;
+
+  if (!gcfClipperTriggerUrl) {
+    console.error('Server configuration error: GCF_CLIPPER_TRIGGER_URL is not set.');
+    return {
+      success: false,
+      error: 'The video clipping service is not configured correctly. Please contact support.',
+    };
+  }
+
+  const jobId = uuidv4();
+
+  try {
+    const jobRef = doc(db, "clippingJobs", jobId);
+    const newClipJobData: Omit<ClippingJob, 'id' | 'clippedVideoGcsUri' | 'error' | 'userId'> & { createdAt: any; updatedAt: any } = {
+      sourceVideoGcsUri: gcsUri,
+      startTime,
+      endTime,
+      outputFormat,
+      status: 'PENDING' as JobStatus,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+
+    await setDoc(jobRef, newClipJobData);
+
+    fetch(gcfClipperTriggerUrl, {
+      method: 'POST',
+      body: JSON.stringify({ 
+        jobId, 
+        gcsUri, 
+        startTime, 
+        endTime, 
+        outputFormat 
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    })
+    .then(response => {
+      if (!response.ok) {
+        response.text().then(text => {
+          console.error(`Error triggering GCF Clipper for job ${jobId}. Status: ${response.status}. Body: ${text}`);
+        });
+      } else {
+        console.log(`Successfully triggered GCF Clipper for job ${jobId}`);
+      }
+    })
+    .catch(triggerError => {
+      console.error(`Network or other error triggering GCF Clipper for job ${jobId}:`, triggerError);
+    });
+
+    return { success: true, jobId };
+  } catch (error: any) {
+    console.error('Error requesting video clip job:', error);
+    const clientErrorMessage = error instanceof Error ? error.message : 'Failed to create video clip job in Firestore.';
+    return {
+      success: false,
+      error: clientErrorMessage,
+    };
+  }
 }

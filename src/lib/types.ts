@@ -1,9 +1,18 @@
+// It's unusual to have 'use server' in a types file, but harmless.
+// 'use server'; 
+
 import type { GenerateTranscriptOutput } from '@/ai/flows/generate-transcript';
-import type { SuggestHotspotsOutput } from '@/ai/flows/suggest-hotspots';
+// Import SuggestHotspotsOutput and alias it to make the re-export clear
+import type { SuggestHotspotsOutput as OriginalSuggestHotspotsOutput } from '@/ai/flows/suggest-hotspots';
+
+// Explicitly re-export SuggestHotspotsOutput so it can be imported from this module
+export type SuggestHotspotsOutput = OriginalSuggestHotspotsOutput;
 
 export type Word = GenerateTranscriptOutput['words'][0];
 export type Transcript = GenerateTranscriptOutput;
-export type Hotspot = SuggestHotspotsOutput[0];
+// Hotspot type is derived from the re-exported SuggestHotspotsOutput
+export type Hotspot = OriginalSuggestHotspotsOutput[0];
+
 
 export interface BrandOptions {
   logo?: string; // data URL for the logo
@@ -16,31 +25,31 @@ export interface Selection {
   end: number;
 }
 
-// Defines the possible states of a transcription job
+// Defines the possible states of a job (can be reused for transcription, clipping, etc.)
 export type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
 // Represents the structure of a transcription job document in Firestore
 export interface TranscriptionJob {
-  id: string; // Job ID, typically same as Firestore document ID
+  id: string; 
   gcsUri: string;
   status: JobStatus;
   createdAt: any; // Firestore Timestamp, consider a more specific type if using a converter
   updatedAt: any; // Firestore Timestamp, consider a more specific type if using a converter
-  transcript?: Transcript; // The final transcript data, using existing Transcript type
-  error?: string; // Error message if the job failed
+  transcript?: Transcript; 
+  error?: string; 
 }
 
 // Represents the structure of a video clipping job document in Firestore
 export interface ClippingJob {
-  id: string; // Job ID, typically same as Firestore document ID
-  userId?: string; // Optional: ID of the user who requested the clip
-  sourceVideoGcsUri: string; // GCS URI of the original video
-  startTime: number; // Start time of the clip in seconds
-  endTime: number; // End time of the clip in seconds
-  status: JobStatus; // Reusing the existing JobStatus type
-  outputFormat?: string; // Optional: e.g., 'mp4', 'gif'
-  createdAt: any; // Firestore Timestamp
-  updatedAt: any; // Firestore Timestamp
-  clippedVideoGcsUri?: string; // GCS URI of the processed clip
-  error?: string; // Error message if the job failed
+  id: string; 
+  userId?: string; 
+  sourceVideoGcsUri: string; 
+  startTime: number; 
+  endTime: number; 
+  status: JobStatus; 
+  outputFormat?: string; 
+  createdAt: any; 
+  updatedAt: any; 
+  clippedVideoGcsUri?: string; 
+  error?: string; 
 }

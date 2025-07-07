@@ -5,49 +5,40 @@ import { AppHeader } from '@/components/header';
 import { VideoUploader } from '@/components/video-uploader';
 import { Editor } from '@/components/editor';
 import { storage } from '@/lib/firebase';
-<<<<<<< HEAD
-import { ref, uploadBytesResumable, FirebaseStorageError } from 'firebase/storage';
-import { requestTranscriptionAction, suggestHotspotsAction } from '@/app/actions'; // Changed generateTranscriptFromGcsAction to requestTranscriptionAction
-=======
-import { ref, uploadBytesResumable } from 'firebase/storage';
-import { 
-  requestTranscriptionAction,
-  verySimpleTestAction // Keep for the test button
-  // Other action imports are not strictly needed if their calls are dummied out in page.tsx
-} from '@/app/actions'; 
->>>>>>> 7eb7dc0 (I see this error with the app, reported by NextJS, please fix it. The er)
-import type { BrandOptions, Hotspot, Transcript, TranscriptionJob, JobStatus } from '@/lib/types';
+import { ref, uploadBytesResumable } from 'firebase/storage'; 
+import type { FirebaseError } from 'firebase/app'; // Using FirebaseError
+import { requestTranscriptionAction, suggestHotspotsAction, ActionResult } from '@/app/actions'; 
+import type { BrandOptions, Hotspot, Transcript, TranscriptionJob, SuggestHotspotsOutput } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
-import { db } from '@/lib/firebase'; // Added db for Firestore
-import { doc, onSnapshot, Timestamp } from 'firebase/firestore'; // Added Firestore specific imports
-import { v4 as uuidv4 } from 'uuid'; // For generating unique job IDs
+import { db } from '@/lib/firebase';
+import { doc, onSnapshot, Timestamp } from 'firebase/firestore';
+import { v4 as uuidv4 } from 'uuid';
 
 export default function Home() {
   const [videoFile, setVideoFile] = React.useState<File | null>(null);
-  const [videoUrl, setVideoUrl] = React.useState<string | null>(null);
+  const [videoUrl, setVideoUrl] = React.useState<string | null>(null); 
+  const [gcsVideoUri, setGcsVideoUri] = React.useState<string | null>(null); 
   const [transcript, setTranscript] = React.useState<Transcript | null>(null);
   const [hotspots, setHotspots] = React.useState<Hotspot[] | null>(null);
-  const [isProcessing, setIsProcessing] = React.useState(false); // This will now cover the whole async process
+  const [isProcessing, setIsProcessing] = React.useState(false); 
   const [processingStatus, setProcessingStatus] = React.useState('');
   const [brandOptions, setBrandOptions] = React.useState<BrandOptions>({
     primaryColor: '#3498DB',
     font: 'Inter',
   });
   const [uploadProgress, setUploadProgress] = React.useState(0);
-  const [currentJobId, setCurrentJobId] = React.useState<string | null>(null);
-  const [gcsVideoUri, setGcsVideoUri] = React.useState<string | null>(null); // Added for GCS URI
+  const [currentTranscriptionJobId, setCurrentTranscriptionJobId] = React.useState<string | null>(null); 
   
   const { toast } = useToast();
 
-<<<<<<< HEAD
-  // Firestore listener effect
   React.useEffect(() => {
-    if (!currentJobId) return;
+    let unsubscribeFromTranscriptionJob: (() => void) | undefined = undefined;
+    if (!currentTranscriptionJobId) return;
 
     setProcessingStatus('Transcription requested. Waiting for updates...');
-    const unsubscribe = onSnapshot(doc(db, "transcriptionJobs", currentJobId), async (jobDoc) => {
+    unsubscribeFromTranscriptionJob = onSnapshot(doc(db, "transcriptionJobs", currentTranscriptionJobId), async (jobDoc) => {
       if (jobDoc.exists()) {
-        const jobData = jobDoc.data() as Omit<TranscriptionJob, 'id'> & { createdAt: Timestamp, updatedAt: Timestamp };
+        const jobData = jobDoc.data() as Omit<TranscriptionJob, 'id' | 'createdAt' | 'updatedAt'> & { createdAt: Timestamp, updatedAt: Timestamp };
         setProcessingStatus(`Job ${jobData.status.toLowerCase()}...`);
 
         switch (jobData.status) {
@@ -62,33 +53,32 @@ export default function Home() {
                 description: "The transcript is ready.",
               });
 
-              // Proceed to hotspots generation
               setProcessingStatus('Analyzing for hotspots...');
               const fullTranscriptText = jobData.transcript.words.map(w => w.text).join(' ');
-              const hotspotsResult = await suggestHotspotsAction({ transcript: fullTranscriptText });
+              const hotspotsResult = await suggestHotspotsAction({ transcript: fullTranscriptText }) as ActionResult<SuggestHotspotsOutput>;
 
-              if (!hotspotsResult.success || !hotspotsResult.data) {
-                console.warn('Could not generate hotspots, but continuing.', hotspotsResult.error);
-                setHotspots([]);
+              if (!hotspotsResult.success || !hotspotsResult.data || hotspotsResult.data.length === 0) { 
+                console.warn('Could not generate hotspots or no hotspots found.', hotspotsResult.error);
+                setHotspots([]); 
+                 if(hotspotsResult.error && hotspotsResult.success === false) { 
+                    toast({ variant: "destructive", title: "Hotspot Suggestion Error", description: hotspotsResult.error });
+                 }
               } else {
                 setHotspots(hotspotsResult.data);
-                if (hotspotsResult.data.length > 0) {
-                  toast({
-                    title: "Hotspots Suggested",
-                    description: "AI has identified key moments for you.",
-                  });
-                }
+                toast({
+                  title: "Hotspots Suggested",
+                  description: "AI has identified key moments for you.",
+                });
               }
-              setIsProcessing(false); // Entire process finished
+              setIsProcessing(false); 
               setProcessingStatus('Processing complete!');
-              setCurrentJobId(null); // Clear job ID after completion
+              setCurrentTranscriptionJobId(null);
             } else {
-              // Should not happen if status is COMPLETED
               toast({ variant: "destructive", title: "Error", description: "Transcript missing for completed job." });
               setIsProcessing(false);
-              setCurrentJobId(null);
+              setCurrentTranscriptionJobId(null);
             }
-            unsubscribe(); // Stop listening once completed
+            if (typeof unsubscribeFromTranscriptionJob === 'function') unsubscribeFromTranscriptionJob();
             break;
           case 'FAILED':
             console.error('Transcription job failed:', jobData.error);
@@ -97,198 +87,133 @@ export default function Home() {
               title: "Transcription Failed",
               description: jobData.error || "The AI failed to transcribe the video.",
             });
-            resetState(); // Reset relevant parts of state
-            unsubscribe(); // Stop listening on failure
+            resetState(); 
+            if (typeof unsubscribeFromTranscriptionJob === 'function') unsubscribeFromTranscriptionJob();
             break;
           case 'PENDING':
             setProcessingStatus('Transcription job is pending...');
             break;
         }
       } else {
-        console.warn("Job document not found for ID:", currentJobId);
-        // Potentially handle this, though it shouldn't happen if created correctly
+        console.warn("Transcription job document not found for ID:", currentTranscriptionJobId);
+        setIsProcessing(false); 
+        setCurrentTranscriptionJobId(null);
+        if (typeof unsubscribeFromTranscriptionJob === 'function') unsubscribeFromTranscriptionJob();
       }
     }, (error) => {
-      console.error("Error listening to job updates:", error);
+      console.error("Error listening to transcription job updates:", error);
       toast({
         variant: "destructive",
         title: "Connection Error",
         description: "Could not listen for transcription updates.",
       });
-      resetState();
+      resetState(); 
     });
 
-    return () => unsubscribe(); // Cleanup listener on component unmount or if jobId changes
-  }, [currentJobId, toast]);
-
-=======
-  // useEffect for Firestore listener can be simplified or its effects ignored for this specific test,
-  // as the backend won't be completing a real job.
-  React.useEffect(() => {
-    if (!currentJobId) return;
-    console.log("[PAGE.TSX] useEffect for currentJobId (Step 1 Test - env var check):", currentJobId);
-    // ... listener logic would go here, but it won't get meaningful updates from this test ...
-    return () => {}; // Placeholder cleanup
-  }, [currentJobId]);
->>>>>>> 7eb7dc0 (I see this error with the app, reported by NextJS, please fix it. The er)
+    return () => {
+        if (typeof unsubscribeFromTranscriptionJob === 'function') unsubscribeFromTranscriptionJob();
+    };
+  }, [currentTranscriptionJobId, toast]);
 
   const resetState = (keepVideo: boolean = false) => {
     if (!keepVideo) {
       setVideoFile(null);
       setVideoUrl(null);
+      setGcsVideoUri(null);
     }
     setTranscript(null);
     setHotspots(null);
     setIsProcessing(false);
     setProcessingStatus('');
     setUploadProgress(0);
-    setCurrentJobId(null);
-    setGcsVideoUri(null); // Reset GCS URI
-    // Note: We don't reset brandOptions here
+    setCurrentTranscriptionJobId(null); 
   };
 
   const handleFileUpload = async (file: File) => {
-    if (isProcessing) return;
-<<<<<<< HEAD
+    if (isProcessing && currentTranscriptionJobId) { 
+        toast({ title: "Processing...", description: "A video is already being processed for transcription."});
+        return;
+    }
 
-    resetState(); // Reset previous state first
-=======
-    console.log("[CLIENT-SIDE /app/page.tsx] handleFileUpload: Process started for file:", file.name); // CLIENT LOG 1
     resetState(); 
->>>>>>> 7eb7dc0 (I see this error with the app, reported by NextJS, please fix it. The er)
     setVideoFile(file);
-    setVideoUrl(URL.createObjectURL(file)); // Show local preview immediately
-    setIsProcessing(true);
+    setVideoUrl(URL.createObjectURL(file)); 
+    setIsProcessing(true); 
     setProcessingStatus('Starting upload...');
     setUploadProgress(0);
+    let uploadedGcsPath = ""; 
 
     try {
-      const gcsUri = await new Promise<string>((resolve, reject) => {
-        const storageRef = ref(storage, `videos/${Date.now()}-${file.name}`);
-        const uploadTask = uploadBytesResumable(storageRef, file);
-        uploadTask.on('state_changed',
+      uploadedGcsPath = await new Promise<string>((resolve, reject) => {
+        const storagePath = `videos/${Date.now()}-${file.name}`;
+        const fileRef = ref(storage, storagePath);
+        const uploadTask = uploadBytesResumable(fileRef, file);
+
+        uploadTask.on(
+          'state_changed',
           (snapshot) => {
             const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
             setUploadProgress(progress);
             setProcessingStatus(`Uploading video... ${Math.round(progress)}%`);
           },
-<<<<<<< HEAD
-          (error: FirebaseStorageError) => {
+          (error: FirebaseError) => { 
             console.error("Firebase Storage Error:", error);
-            const message = error.code === 'storage/unauthorized' 
-              ? "Permission denied. Please check your Firebase Storage rules."
-              : `Upload failed: ${error.message}`;
-=======
-          (error: any) => { 
-            console.error("[CLIENT-SIDE /app/page.tsx] Firebase Storage Error during upload:", error); // CLIENT LOG 3
-            const errorCode = (error as any)?.code; 
-            const errorMessage = (error as Error)?.message || 'An unknown storage error occurred';
-            const message = errorCode === 'storage/unauthorized' ? "Permission denied." : `Upload failed: ${errorMessage}`;
->>>>>>> 7eb7dc0 (I see this error with the app, reported by NextJS, please fix it. The er)
+            let message = `Upload failed: ${error.message}`;
+            if (error.code === 'storage/unauthorized') {
+              message = "Permission denied. Please check your Firebase Storage rules.";
+            } else if (error.code === 'storage/canceled') {
+              message = "Upload canceled.";
+            }
             reject(new Error(message));
           },
           async () => {
-            const gcsPath = `gs://${uploadTask.snapshot.ref.bucket}/${uploadTask.snapshot.ref.fullPath}`;
-            setGcsVideoUri(gcsPath); // Set GCS URI here
-            resolve(gcsPath);
+            const gcsUriToSet = `gs://${uploadTask.snapshot.ref.bucket}/${uploadTask.snapshot.ref.fullPath}`;
+            setGcsVideoUri(gcsUriToSet); 
+            resolve(gcsUriToSet);
           }
         );
       });
-
-<<<<<<< HEAD
+      
       setProcessingStatus('Upload complete. Requesting transcript...');
-      const jobId = uuidv4();
-      const transcriptRequestResult = await requestTranscriptionAction({ gcsUri, jobId });
+      const newTranscriptionJobId = uuidv4();
+      const transcriptRequestResult = await requestTranscriptionAction({ gcsUri: uploadedGcsPath, jobId: newTranscriptionJobId }) as ActionResult;
 
       if (!transcriptRequestResult?.success || !transcriptRequestResult.jobId) {
-        throw new Error(transcriptRequestResult?.error || 'Failed to request transcript generation.');
+        const errorMessage = transcriptRequestResult?.error || 'Failed to request transcript generation due to an unknown issue.';
+        throw new Error(errorMessage);
       }
-      
-      setCurrentJobId(transcriptRequestResult.jobId); // This will trigger the useEffect listener
-      // No longer setting transcript directly here, listener will handle it.
-      // No longer calling suggestHotspotsAction here, listener will handle it.
-      // isProcessing will be set to false by the listener when the job is COMPLETED or FAILED.
+      setCurrentTranscriptionJobId(transcriptRequestResult.jobId);
 
     } catch (error: any) {
-      console.error('File upload or transcription request failed:', error);
-=======
-      setProcessingStatus('Upload complete. Requesting transcript (Step 1 Test - Env Var Check)...');
-      const jobId = uuidv4(); 
-      console.log("[CLIENT-SIDE /app/page.tsx] Attempting to call requestTranscriptionAction (Step 1 Test) with jobId:", jobId, "and gcsUri:", gcsUri); // CLIENT LOG 5
-
-      const transcriptRequestResult = await requestTranscriptionAction({ gcsUri, jobId });
-      
-      console.log("[CLIENT-SIDE /app/page.tsx] requestTranscriptionAction (Step 1 Test) raw result:", transcriptRequestResult); // CLIENT LOG 6
-
-      if (transcriptRequestResult && typeof transcriptRequestResult === 'object' && transcriptRequestResult.debugMessage) {
-        console.log("%c[CLIENT-SIDE DEBUG] Server Action Debug Message:", "color: blue; font-weight: bold;", transcriptRequestResult.debugMessage);
-      }
-
-      if (transcriptRequestResult && transcriptRequestResult.success && transcriptRequestResult.debugMessage?.includes("STEP 1 SUCCESS")) {
-        console.log("[CLIENT-SIDE /app/page.tsx] Action STEP 1 (GCF URL check) SUCCEEDED!"); // CLIENT LOG 8
-        toast({ title: "Action Step 1: Env Var OK", description: transcriptRequestResult.debugMessage });
-      } else {
-        console.error("[CLIENT-SIDE /app/page.tsx] Action STEP 1 FAILED or returned unexpected. Full result:", transcriptRequestResult); // CLIENT LOG 7
-        throw new Error(transcriptRequestResult?.error || transcriptRequestResult?.debugMessage || 'Action Step 1 (GCF URL check) failed or returned unexpected data.');
-      }
-      setIsProcessing(false); 
-      setProcessingStatus("Action Step 1 (Env Var Check) complete.");
-
-    } catch (error: any) {
-      console.error('[CLIENT-SIDE /app/page.tsx] Error in handleFileUpload try/catch block:', error); // CLIENT LOG 9
-      console.error('[CLIENT-SIDE /app/page.tsx] Actual error object caught in handleFileUpload:', error);
->>>>>>> 7eb7dc0 (I see this error with the app, reported by NextJS, please fix it. The er)
+      console.error('File upload or processing request failed:', error);
       toast({
         variant: "destructive",
         title: "Oh no! Something went wrong.",
-        description: error.message || "An unknown error occurred during video processing setup.",
+        description: error.message || "An unknown error occurred during setup.",
       });
-<<<<<<< HEAD
-      resetState(); // Reset everything on initial error
-=======
       resetState(); 
     }
   };
 
-  const handleSimpleTest = async () => {
-    const testData = { message: "Ultra simple test!" }; 
-    console.log("[CLIENT-SIDE /app/page.tsx] Attempting to call verySimpleTestAction with data:", testData);
-    try {
-      const result = await verySimpleTestAction(testData); 
-      console.log("[CLIENT-SIDE /app/page.tsx] verySimpleTestAction (dummy) result:", result);
-      alert(`Simple Test Result (dummy): ${JSON.stringify(result)}`);
-    } catch (error) {
-      console.error("[CLIENT-SIDE /app/page.tsx] verySimpleTestAction (dummy) error:", error);
-      alert(`Simple Test Error (dummy): ${String(error)}`);
->>>>>>> 7eb7dc0 (I see this error with the app, reported by NextJS, please fix it. The er)
-    }
-  };
-
   return (
-    // JSX is the same as before
     <div className="flex flex-col min-h-screen bg-background">
-      <AppHeader brandOptions={brandOptions} onBrandOptionsChange={setBrandOptions} onNewVideo={resetState} isEditing={!!videoFile} />
+      <AppHeader brandOptions={brandOptions} onBrandOptionsChange={setBrandOptions} onNewVideo={() => resetState()} isEditing={!!videoFile} />
       <main className="flex-grow flex flex-col items-center justify-center p-4 sm:p-6 md:p-8">
-<<<<<<< HEAD
-=======
-        <button 
-          onClick={handleSimpleTest} 
-          className="my-4 p-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-75 transition duration-150 ease-in-out"
-        >
-          Run Simple Server Action Test (currently dummy)
-        </button>
-        
->>>>>>> 7eb7dc0 (I see this error with the app, reported by NextJS, please fix it. The er)
-        {videoUrl && transcript ? (
+        {videoUrl && gcsVideoUri ? ( 
           <Editor
             videoUrl={videoUrl}
-            transcript={transcript}
+            gcsVideoUri={gcsVideoUri} 
+            transcript={transcript} 
             hotspots={hotspots}
             brandOptions={brandOptions}
-            gcsVideoUri={gcsVideoUri} // Pass GCS URI to Editor
           />
         ) : (
-          <VideoUploader onFileUpload={handleFileUpload} isProcessing={isProcessing} status={processingStatus} progress={uploadProgress} />
+          <VideoUploader 
+            onFileUpload={handleFileUpload} 
+            isProcessing={isProcessing} 
+            status={processingStatus} 
+            progress={uploadProgress} 
+          />
         )}
       </main>
     </div>
