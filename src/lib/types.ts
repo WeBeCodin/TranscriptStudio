@@ -29,3 +29,18 @@ export interface TranscriptionJob {
   transcript?: Transcript; // The final transcript data, using existing Transcript type
   error?: string; // Error message if the job failed
 }
+
+// Represents the structure of a video clipping job document in Firestore
+export interface ClippingJob {
+  id: string; // Job ID, typically same as Firestore document ID
+  userId?: string; // Optional: ID of the user who requested the clip
+  sourceVideoGcsUri: string; // GCS URI of the original video
+  startTime: number; // Start time of the clip in seconds
+  endTime: number; // End time of the clip in seconds
+  status: JobStatus; // Reusing the existing JobStatus type
+  outputFormat?: string; // Optional: e.g., 'mp4', 'gif'
+  createdAt: any; // Firestore Timestamp
+  updatedAt: any; // Firestore Timestamp
+  clippedVideoGcsUri?: string; // GCS URI of the processed clip
+  error?: string; // Error message if the job failed
+}

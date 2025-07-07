@@ -7,7 +7,8 @@ import { generateVideoBackground, GenerateVideoBackgroundInput } from '@/ai/flow
 
 import { db } from '@/lib/firebase';
 import { collection, doc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
-import type { TranscriptionJob } from '@/lib/types';
+import type { TranscriptionJob, ClippingJob } from '@/lib/types'; // Added ClippingJob
+import { v4 as uuidv4 } from 'uuid'; // For generating unique job IDs
 
 export async function generateTranscriptFromGcsAction(input: GenerateTranscriptInput) {
   try {

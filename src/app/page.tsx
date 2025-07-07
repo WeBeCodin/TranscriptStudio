@@ -26,6 +26,7 @@ export default function Home() {
   });
   const [uploadProgress, setUploadProgress] = React.useState(0);
   const [currentJobId, setCurrentJobId] = React.useState<string | null>(null);
+  const [gcsVideoUri, setGcsVideoUri] = React.useState<string | null>(null); // Added for GCS URI
   
   const { toast } = useToast();
 
@@ -121,7 +122,8 @@ export default function Home() {
     setIsProcessing(false);
     setProcessingStatus('');
     setUploadProgress(0);
-    setCurrentJobId(null); 
+    setCurrentJobId(null);
+    setGcsVideoUri(null); // Reset GCS URI
     // Note: We don't reset brandOptions here
   };
 
@@ -154,8 +156,9 @@ export default function Home() {
               : `Upload failed: ${error.message}`;
             reject(new Error(message));
           },
-          async () => { // Changed to async to handle promise from resolve
+          async () => {
             const gcsPath = `gs://${uploadTask.snapshot.ref.bucket}/${uploadTask.snapshot.ref.fullPath}`;
+            setGcsVideoUri(gcsPath); // Set GCS URI here
             resolve(gcsPath);
           }
         );
@@ -195,6 +198,7 @@ export default function Home() {
             transcript={transcript}
             hotspots={hotspots}
             brandOptions={brandOptions}
+            gcsVideoUri={gcsVideoUri} // Pass GCS URI to Editor
           />
         ) : (
           <VideoUploader onFileUpload={handleFileUpload} isProcessing={isProcessing} status={processingStatus} progress={uploadProgress} />
