@@ -12,16 +12,16 @@ import { tmpdir } from 'os';
 
 console.log('[GCF_CLIPPER_LOG] STEP 1: Basic imports successful.');
 
-// Define JobStatus directly in this file for the GCF
 export type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
 let db: admin.firestore.Firestore;
 let defaultStorageBucket: Bucket;
+const YOUR_BUCKET_NAME = 'transcript-studio-4drhv.appspot.com'; // YOUR ACTUAL BUCKET NAME HERE
 
 try {
   if (admin.apps.length === 0) {
     console.log('[GCF_CLIPPER_LOG] STEP 2: Initializing Firebase Admin SDK...');
-    admin.initializeApp();
+    admin.initializeApp(); // No need to pass storageBucket here if using explicit bucket name below
     console.log('[GCF_CLIPPER_LOG] STEP 3: Firebase Admin SDK initialized successfully.');
   } else {
     console.log('[GCF_CLIPPER_LOG] STEP 2-ALT: Firebase Admin SDK already initialized.');
@@ -30,23 +30,12 @@ try {
   db = admin.firestore();
   console.log('[GCF_CLIPPER_LOG] STEP 4: Firestore instance obtained.');
 
-  const bucketName = admin.app().options.storageBucket;
-  if (!bucketName) {
-    const implicitBucket = admin.storage().bucket();
-    if (implicitBucket && implicitBucket.name) {
-        defaultStorageBucket = implicitBucket;
-        console.log(`[GCF_CLIPPER_LOG] STEP 5: Default storage bucket instance obtained implicitly: '${implicitBucket.name}'.`);
-    } else {
-        throw new Error("[GCF_CLIPPER_LOG] Default Firebase Storage bucket name not found. Ensure it's configured or GCLOUD_STORAGE_BUCKET env var is set for the function.");
-    }
-  } else {
-      defaultStorageBucket = admin.storage().bucket(bucketName);
-      console.log(`[GCF_CLIPPER_LOG] STEP 5: Storage bucket instance obtained for '${bucketName}'.`);
-  }
+  defaultStorageBucket = admin.storage().bucket(YOUR_BUCKET_NAME);
+  console.log(`[GCF_CLIPPER_LOG] STEP 5: Storage bucket instance obtained for '${defaultStorageBucket.name}'.`);
 
 } catch (e: any) {
-  console.error('[GCF_CLIPPER_LOG] !!! CRITICAL ERROR during initial setup (Firebase Admin, DB, or Storage):', e.message, e.stack);
-  process.exit(1); // Force exit if critical setup fails
+  console.error('[GCF_CLIPPER_LOG] !!! CRITICAL ERROR during initial setup:', e.message, e.stack);
+  process.exit(1); 
 }
 
 const execPromise = promisify(exec);
@@ -62,10 +51,10 @@ interface ClippingWorkerInput {
 
 export const videoClipperWorker = async (req: Request, res: Response): Promise<void> => {
   const receivedJobId = req.body?.jobId || 'unknown_job_at_invocation';
-  console.log(`[GCF_CLIPPER_LOG][${receivedJobId}] videoClipperWorker invoked with body:`, req.body);
+  console.log(`[GCF_CLIPPER_LOG][${receivedJobId}] videoClipperWorker invoked with body:`, JSON.stringify(req.body));
 
   if (!db || !defaultStorageBucket) {
-      console.error(`[GCF_CLIPPER_LOG][${receivedJobId}] CRITICAL: Firestore DB or Storage Bucket not initialized during startup!`);
+      console.error(`[GCF_CLIPPER_LOG][${receivedJobId}] CRITICAL: Firestore DB or Storage Bucket not initialized!`);
       res.status(500).send({ success: false, error: 'Internal Server Error: Critical services not initialized.' });
       return;
   }
@@ -93,7 +82,7 @@ export const videoClipperWorker = async (req: Request, res: Response): Promise<v
     res.status(400).send('Start time must be before end time.');
     return;
   }
-  if (startTime < 0) { // endTime can be very large, but start must be non-negative
+  if (startTime < 0) { 
     console.error(`[${jobId}] Invalid time range: startTime ${startTime} < 0`);
     res.status(400).send('Start time must be non-negative.');
     return;
@@ -151,11 +140,11 @@ export const videoClipperWorker = async (req: Request, res: Response): Promise<v
     try {
       const stats = await fs.stat(localOutputPath);
       if (stats.size === 0) {
-        console.error(`[${jobId}] FFmpeg produced an empty output file.`);
+        console.error(`[${jobId}] FFmpeg produced an empty output file. Stderr for FFmpeg: ${stderr}`);
         throw new Error('FFmpeg produced an empty output file. Check stderr for details: ' + stderr);
       }
     } catch (e: any) {
-      console.error(`[${jobId}] FFmpeg output file validation failed. Error: ${e.message}. Stderr: ${stderr}`);
+      console.error(`[${jobId}] FFmpeg output file validation failed. Error: ${e.message}. Stderr for FFmpeg: ${stderr}`);
       throw new Error(`FFmpeg output file validation failed: ${e.message} (Stderr for FFmpeg: ${stderr})`);
     }
     console.log(`[${jobId}] FFmpeg processed ${outputClipFileName} successfully.`);
