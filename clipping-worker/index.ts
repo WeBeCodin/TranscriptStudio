@@ -1,18 +1,56 @@
+console.log('[GCF_CLIPPER_LOG] START: Loading clipping-worker/index.ts');
+
 import type { Request, Response } from 'express';
 import * as admin from 'firebase-admin';
+import { Bucket } from '@google-cloud/storage'; // Correct import for Bucket type
+
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 
-if (admin.apps.length === 0) {
-  admin.initializeApp();
+console.log('[GCF_CLIPPER_LOG] STEP 1: Basic imports successful.');
+
+// Define JobStatus directly in this file for the GCF
+export type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+
+let db: admin.firestore.Firestore;
+let defaultStorageBucket: Bucket;
+
+try {
+  if (admin.apps.length === 0) {
+    console.log('[GCF_CLIPPER_LOG] STEP 2: Initializing Firebase Admin SDK...');
+    admin.initializeApp();
+    console.log('[GCF_CLIPPER_LOG] STEP 3: Firebase Admin SDK initialized successfully.');
+  } else {
+    console.log('[GCF_CLIPPER_LOG] STEP 2-ALT: Firebase Admin SDK already initialized.');
+  }
+
+  db = admin.firestore();
+  console.log('[GCF_CLIPPER_LOG] STEP 4: Firestore instance obtained.');
+
+  const bucketName = admin.app().options.storageBucket;
+  if (!bucketName) {
+    const implicitBucket = admin.storage().bucket();
+    if (implicitBucket && implicitBucket.name) {
+        defaultStorageBucket = implicitBucket;
+        console.log(`[GCF_CLIPPER_LOG] STEP 5: Default storage bucket instance obtained implicitly: '${implicitBucket.name}'.`);
+    } else {
+        throw new Error("[GCF_CLIPPER_LOG] Default Firebase Storage bucket name not found. Ensure it's configured or GCLOUD_STORAGE_BUCKET env var is set for the function.");
+    }
+  } else {
+      defaultStorageBucket = admin.storage().bucket(bucketName);
+      console.log(`[GCF_CLIPPER_LOG] STEP 5: Storage bucket instance obtained for '${bucketName}'.`);
+  }
+
+} catch (e: any) {
+  console.error('[GCF_CLIPPER_LOG] !!! CRITICAL ERROR during initial setup (Firebase Admin, DB, or Storage):', e.message, e.stack);
+  process.exit(1); // Force exit if critical setup fails
 }
-const db = admin.firestore();
-const storage = admin.storage().bucket(); // Default bucket
 
 const execPromise = promisify(exec);
+console.log('[GCF_CLIPPER_LOG] STEP 6: execPromise created.');
 
 interface ClippingWorkerInput {
   jobId: string;
@@ -23,6 +61,15 @@ interface ClippingWorkerInput {
 }
 
 export const videoClipperWorker = async (req: Request, res: Response): Promise<void> => {
+  const receivedJobId = req.body?.jobId || 'unknown_job_at_invocation';
+  console.log(`[GCF_CLIPPER_LOG][${receivedJobId}] videoClipperWorker invoked with body:`, req.body);
+
+  if (!db || !defaultStorageBucket) {
+      console.error(`[GCF_CLIPPER_LOG][${receivedJobId}] CRITICAL: Firestore DB or Storage Bucket not initialized during startup!`);
+      res.status(500).send({ success: false, error: 'Internal Server Error: Critical services not initialized.' });
+      return;
+  }
+
   if (req.method !== 'POST') {
     res.status(405).send('Method Not Allowed');
     return;
@@ -46,7 +93,7 @@ export const videoClipperWorker = async (req: Request, res: Response): Promise<v
     res.status(400).send('Start time must be before end time.');
     return;
   }
-  if (startTime < 0) {
+  if (startTime < 0) { // endTime can be very large, but start must be non-negative
     console.error(`[${jobId}] Invalid time range: startTime ${startTime} < 0`);
     res.status(400).send('Start time must be non-negative.');
     return;
@@ -58,11 +105,9 @@ export const videoClipperWorker = async (req: Request, res: Response): Promise<v
   let localInputPath = '';
   let localOutputPath = '';
 
-  console.log(`[${jobId}] Received job. Input:`, req.body);
-
   try {
     await jobRef.update({
-      status: 'PROCESSING',
+      status: 'PROCESSING' as JobStatus,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       workerStartedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -75,10 +120,10 @@ export const videoClipperWorker = async (req: Request, res: Response): Promise<v
     if (!gcsUriMatch) {
       throw new Error(`Invalid GCS URI format: ${gcsUri}`);
     }
-    const sourceBucketName = gcsUriMatch[1];
+    const sourceBucketNameAsProvided = gcsUriMatch[1];
     const gcsFilePath = gcsUriMatch[2];
     
-    const sourceBucket = sourceBucketName === storage.name ? storage : admin.storage().bucket(sourceBucketName);
+    const sourceBucket = admin.storage().bucket(sourceBucketNameAsProvided);
 
     const inputFileName = path.basename(gcsFilePath);
     localInputPath = path.join(tempLocalDir, inputFileName);
@@ -94,7 +139,7 @@ export const videoClipperWorker = async (req: Request, res: Response): Promise<v
     
     console.log(`[${jobId}] Executing FFmpeg: ${ffmpegCommand}`);
     
-    const execTimeout = 480000; // 8 minutes
+    const execTimeout = 480000; 
     const { stdout, stderr } = await Promise.race([
         execPromise(ffmpegCommand, { timeout: execTimeout - 30000 }),
         new Promise((_, reject) => setTimeout(() => reject(new Error('FFmpeg execution timed out')), execTimeout - 30000))
@@ -110,22 +155,22 @@ export const videoClipperWorker = async (req: Request, res: Response): Promise<v
         throw new Error('FFmpeg produced an empty output file. Check stderr for details: ' + stderr);
       }
     } catch (e: any) {
-      console.error(`[${jobId}] FFmpeg output file validation failed. Error: ${e.message}`);
-      throw new Error(`FFmpeg output file validation failed. Stderr: ${stderr}. Error: ${e.message}`);
+      console.error(`[${jobId}] FFmpeg output file validation failed. Error: ${e.message}. Stderr: ${stderr}`);
+      throw new Error(`FFmpeg output file validation failed: ${e.message} (Stderr for FFmpeg: ${stderr})`);
     }
     console.log(`[${jobId}] FFmpeg processed ${outputClipFileName} successfully.`);
 
     const destinationGcsPath = `clips/${jobId}/${outputClipFileName}`;
-    console.log(`[${jobId}] Uploading ${localOutputPath} to gs://${storage.name}/${destinationGcsPath}...`);
-    await storage.upload(localOutputPath, {
+    console.log(`[${jobId}] Uploading ${localOutputPath} to gs://${defaultStorageBucket.name}/${destinationGcsPath}...`);
+    await defaultStorageBucket.upload(localOutputPath, {
       destination: destinationGcsPath,
       metadata: { contentType: `video/${outputFormat}` }, 
     });
-    const clippedVideoGcsUri = `gs://${storage.name}/${destinationGcsPath}`;
+    const clippedVideoGcsUri = `gs://${defaultStorageBucket.name}/${destinationGcsPath}`;
     console.log(`[${jobId}] Uploaded ${outputClipFileName} to ${clippedVideoGcsUri} successfully.`);
 
     await jobRef.update({
-      status: 'COMPLETED',
+      status: 'COMPLETED' as JobStatus,
       clippedVideoGcsUri: clippedVideoGcsUri,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       workerCompletedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -139,7 +184,7 @@ export const videoClipperWorker = async (req: Request, res: Response): Promise<v
     const errorMessage = error.message || 'An unknown error occurred during video clipping.';
     try {
       await jobRef.update({
-        status: 'FAILED',
+        status: 'FAILED' as JobStatus,
         error: errorMessage,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         workerCompletedAt: admin.firestore.FieldValue.serverTimestamp(), 
@@ -149,9 +194,10 @@ export const videoClipperWorker = async (req: Request, res: Response): Promise<v
     }
     res.status(500).send({ success: false, error: `Failed to process job ${jobId}: ${errorMessage}` });
   } finally {
-    if (tempLocalDir) {
+    if (tempLocalDir && tempLocalDir !== path.join(tmpdir())) { 
       console.log(`[${jobId}] Cleaning up temporary directory: ${tempLocalDir}`);
       await fs.rm(tempLocalDir, { recursive: true, force: true }).catch(err => console.error(`[${jobId}] Error cleaning up temp directory ${tempLocalDir}:`, err));
     }
   }
 };
+console.log('[GCF_CLIPPER_LOG] END: videoClipperWorker function defined and exported. Script load complete.');
