@@ -18,11 +18,12 @@ export type ActionResult<TData = null> = {
 };
 
 export async function generateTranscriptFromGcsAction(input: GenerateTranscriptInput): Promise<ActionResult<GenerateTranscriptOutput>> {
+  console.log('[ACTIONS.TS] generateTranscriptFromGcsAction called (likely deprecated). Input:', input);
   try {
     const transcript = await generateTranscript(input);
     return { success: true, data: transcript, debugMessage: "[ACTIONS.TS] generateTranscriptFromGcsAction: Success" };
   } catch (error: any) {
-    console.error('A critical error occurred in generateTranscriptFromGcsAction. Full error:', error);
+    console.error('[ACTIONS.TS] Critical error in generateTranscriptFromGcsAction. Full error:', error);
     return { 
       success: false, 
       error: `AI transcript generation failed: ${error.message || 'Unknown error'}`,
@@ -38,32 +39,41 @@ interface RequestTranscriptionInput {
 
 export async function requestTranscriptionAction(input: RequestTranscriptionInput): Promise<ActionResult> {
   const { gcsUri, jobId } = input;
+  console.log(`[ACTIONS.TS][${jobId}] requestTranscriptionAction called. gcsUri: ${gcsUri}`);
 
   if (!gcsUri || !jobId) {
-    return { success: false, error: "Missing GCS URI or Job ID." };
-  }
-  
-  const gcfTriggerUrl = process.env.GCF_TRANSCRIPTION_TRIGGER_URL;
-
-  if (!gcfTriggerUrl) {
-    console.error('Server configuration error: GCF_TRANSCRIPTION_TRIGGER_URL is not set.');
+    const errorMsg = "[ACTIONS.TS] ERROR: Missing GCS URI or Job ID in requestTranscriptionAction.";
+    console.error(errorMsg, input);
     return { 
       success: false, 
-      error: 'The transcription service is not configured correctly. Please contact support.' 
+      error: "Missing GCS URI or Job ID.",
+      debugMessage: errorMsg
+    };
+  }
+  
+  const gcfTriggerUrl = process.env.GCF_DEEPGRAM_TRANSCRIPTION_TRIGGER_URL; 
+  console.log(`[ACTIONS.TS][${jobId}] Using GCF Trigger URL for Deepgram: ${gcfTriggerUrl || 'NOT SET!'}`);
+
+  if (!gcfTriggerUrl) {
+    const errorMsg = "[ACTIONS.TS] ERROR: GCF_DEEPGRAM_TRANSCRIPTION_TRIGGER_URL environment variable is not set.";
+    console.error(errorMsg);
+    return { 
+      success: false, 
+      error: 'The transcription service (Deepgram worker) is not configured correctly. Please contact support.',
+      debugMessage: errorMsg
     };
   }
 
   try {
     const jobRef = doc(db, "transcriptionJobs", jobId);
-    
     const newJobData: Omit<TranscriptionJob, 'id' | 'transcript' | 'error'> & { createdAt: any; updatedAt: any } = {
       gcsUri,
       status: 'PENDING' as JobStatus,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
-
     await setDoc(jobRef, newJobData);
+    console.log(`[ACTIONS.TS][${jobId}] Firestore doc for transcription job created/updated to PENDING.`);
 
     fetch(gcfTriggerUrl, {
       method: 'POST',
@@ -73,30 +83,36 @@ export async function requestTranscriptionAction(input: RequestTranscriptionInpu
     .then(response => {
       if (!response.ok) {
         response.text().then(text => {
-          console.error(`Error triggering GCF for job ${jobId}. Status: ${response.status}. Body: ${text}`);
+          console.error(`[ACTIONS.TS][${jobId}] ERROR triggering Deepgram GCF. Status: ${response.status}. Body: ${text}`);
+        }).catch(textErr => {
+          console.error(`[ACTIONS.TS][${jobId}] ERROR triggering Deepgram GCF and failed to parse error body. Status: ${response.status}. Parse Error: ${textErr}`);
         });
       } else {
-        console.log(`Successfully triggered GCF for job ${jobId}`);
+        console.log(`[ACTIONS.TS][${jobId}] Successfully triggered Deepgram GCF (HTTP call sent).`);
       }
     })
     .catch(triggerError => {
-      console.error(`Network or other error triggering GCF for job ${jobId}:`, triggerError);
+      console.error(`[ACTIONS.TS][${jobId}] NETWORK_ERROR or other issue triggering Deepgram GCF:`, triggerError);
     });
 
-    return { success: true, jobId };
+    return { 
+      success: true, 
+      jobId,
+      debugMessage: `[ACTIONS.TS][${jobId}] requestTranscriptionAction: Successfully initiated job and sent trigger to Deepgram GCF.`
+    };
   } catch (error: any) {
-    console.error('Error requesting transcription job:', error);
-    const clientErrorMessage = error instanceof Error ? error.message : 'Failed to create transcription job in Firestore.';
+    console.error(`[ACTIONS.TS][${jobId}] CATCH_ERROR in requestTranscriptionAction (likely Firestore setDoc):`, error.message, error.stack);
     return { 
       success: false, 
-      error: clientErrorMessage
+      error: error.message || 'Failed to create transcription job in Firestore.',
+      debugMessage: `[ACTIONS.TS][${jobId}] requestTranscriptionAction: Firestore setDoc error - ${error.message}`
     };
   }
 }
 
 export async function getTranscriptionJobAction(jobId: string): Promise<ActionResult<TranscriptionJob | null>> {
   if (!jobId) {
-     return { success: false, error: "Job ID is required." };
+     return { success: false, error: "Job ID is required.", debugMessage: "[ACTIONS.TS] getTranscriptionJobAction: No Job ID" };
   }
   try {
     const jobRef = doc(db, "transcriptionJobs", jobId);
@@ -104,21 +120,21 @@ export async function getTranscriptionJobAction(jobId: string): Promise<ActionRe
     if (!jobSnap.exists()) {
       return { success: true, data: null, debugMessage: `[ACTIONS.TS] getTranscriptionJobAction: Job ${jobId} not found.` }; 
     }
-    const jobDataFromDb = jobSnap.data() as Omit<TranscriptionJob, 'id' | 'createdAt' | 'updatedAt' | 'transcript' | 'error'> & { 
-        gcsUri: string; status: JobStatus; createdAt: any; updatedAt: any; transcript?: Transcript; error?: string; 
-    };
-    
+    const jobDataFromDb = jobSnap.data();
     const typedJob: TranscriptionJob = {
       id: jobSnap.id,
       gcsUri: jobDataFromDb.gcsUri,
-      status: jobDataFromDb.status,
-      transcript: jobDataFromDb.transcript, 
-      error: jobDataFromDb.error, 
-      createdAt: jobDataFromDb.createdAt?.toDate ? jobDataFromDb.createdAt.toDate() : jobDataFromDb.createdAt,
-      updatedAt: jobDataFromDb.updatedAt?.toDate ? jobDataFromDb.updatedAt.toDate() : jobDataFromDb.updatedAt,
+      status: jobDataFromDb.status as JobStatus,
+      transcript: jobDataFromDb.transcript as Transcript | undefined, 
+      error: jobDataFromDb.error as string | undefined, 
+      createdAt: jobDataFromDb.createdAt,
+      updatedAt: jobDataFromDb.updatedAt,
+      workerStartedAt: jobDataFromDb.workerStartedAt,
+      workerCompletedAt: jobDataFromDb.workerCompletedAt,
     };
     return { success: true, data: typedJob, debugMessage: `[ACTIONS.TS] getTranscriptionJobAction: Job ${jobId} fetched.` };
   } catch (error: any) {
+    console.error(`[ACTIONS.TS] Error fetching transcription job ${jobId}:`, error.message, error.stack);
     return { 
       success: false, 
       error: error.message || `Failed to fetch job ${jobId}.`,
@@ -128,14 +144,15 @@ export async function getTranscriptionJobAction(jobId: string): Promise<ActionRe
 }
 
 export async function suggestHotspotsAction(input: SuggestHotspotsInput): Promise<ActionResult<SuggestHotspotsOutput>> { 
+  console.log('[ACTIONS.TS] suggestHotspotsAction called. Input transcript length:', input.transcript?.length);
   try {
     const hotspotsData = await suggestHotspots(input); 
     if (!hotspotsData) {
-        return { success: false, error: 'AI failed to suggest hotspots.', data: [] as SuggestHotspotsOutput };
+        return { success: false, error: 'AI failed to suggest hotspots.', data: [] as SuggestHotspotsOutput, debugMessage: "[ACTIONS.TS] suggestHotspotsAction: Flow returned no data." };
     }
     return { success: true, data: hotspotsData, debugMessage: "[ACTIONS.TS] suggestHotspotsAction: Success" }; 
   } catch (error: any) {
-    console.error('Error suggesting hotspots:', error);
+    console.error('[ACTIONS.TS] Error suggesting hotspots:', error.message, error.stack);
     return { 
       success: false, 
       error: error.message || 'Failed to suggest hotspots.',
@@ -146,6 +163,7 @@ export async function suggestHotspotsAction(input: SuggestHotspotsInput): Promis
 }
 
 export async function generateVideoBackgroundAction(input: GenerateVideoBackgroundInput): Promise<ActionResult<{ backgroundDataUri: string }>> { 
+    console.log('[ACTIONS.TS] generateVideoBackgroundAction called.');
     let flowResultPayload;
     try {
       flowResultPayload = await generateVideoBackground(input); 
@@ -156,6 +174,7 @@ export async function generateVideoBackgroundAction(input: GenerateVideoBackgrou
           debugMessage: "[ACTIONS.TS] generateVideoBackgroundAction: Flow success, valid data URI."
         };
       } else {
+        console.error('[ACTIONS.TS] generateVideoBackgroundAction: Flow returned invalid data:', flowResultPayload);
         return {
           success: false,
           error: 'AI flow did not return a valid background image URI.',
@@ -164,10 +183,11 @@ export async function generateVideoBackgroundAction(input: GenerateVideoBackgrou
       }
     } catch (error: any) {
       const errorMessage = error.message || 'Unknown error in generateVideoBackground flow.';
+      console.error('[ACTIONS.TS] generateVideoBackgroundAction: FAILED in flow call.', error.message, error.stack);
       return { 
         success: false, 
         error: errorMessage,
-        debugMessage: `[ACTIONS.TS] generateVideoBackgroundAction: FAILED in flow call. Error: ${errorMessage}. Stack: ${error.stack}. FlowResult (if any): ${JSON.stringify(flowResultPayload)}` 
+        debugMessage: `[ACTIONS.TS] generateVideoBackgroundAction: FAILED in flow call. Error: ${errorMessage}. FlowResult (if any): ${JSON.stringify(flowResultPayload)}` 
       };
     }
 }
@@ -183,6 +203,8 @@ export async function requestVideoClipAction(
   input: RequestVideoClipInput
 ): Promise<ActionResult> { 
   const { gcsUri, startTime, endTime, outputFormat = 'mp4' } = input;
+  const jobId = uuidv4(); 
+  console.log(`[ACTIONS.TS][${jobId}] requestVideoClipAction called. gcsUri: ${gcsUri}, startTime: ${startTime}, endTime: ${endTime}`);
 
   if (!gcsUri || typeof startTime !== 'number' || typeof endTime !== 'number') {
     return { success: false, error: "Missing GCS URI, startTime, or endTime." };
@@ -191,20 +213,19 @@ export async function requestVideoClipAction(
     return { success: false, error: "Start time must be before end time." };
   }
   if (startTime < 0 || endTime < 0) {
-    return { success: false, error: "Start and end times must be positive." };
+    return { success: false, error: "Start and end times must be non-negative." };
   }
 
   const gcfClipperTriggerUrl = process.env.GCF_CLIPPER_TRIGGER_URL;
+  console.log(`[ACTIONS.TS][${jobId}] Using GCF_CLIPPER_TRIGGER_URL: ${gcfClipperTriggerUrl || 'NOT SET!'}`);
 
   if (!gcfClipperTriggerUrl) {
-    console.error('Server configuration error: GCF_CLIPPER_TRIGGER_URL is not set.');
+    console.error('[ACTIONS.TS] Server configuration error: GCF_CLIPPER_TRIGGER_URL is not set.');
     return {
       success: false,
       error: 'The video clipping service is not configured correctly. Please contact support.',
     };
   }
-
-  const jobId = uuidv4();
 
   try {
     const jobRef = doc(db, "clippingJobs", jobId);
@@ -217,40 +238,38 @@ export async function requestVideoClipAction(
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
-
     await setDoc(jobRef, newClipJobData);
+    console.log(`[ACTIONS.TS][${jobId}] Firestore doc for clipping job created/updated to PENDING.`);
 
     fetch(gcfClipperTriggerUrl, {
       method: 'POST',
-      body: JSON.stringify({ 
-        jobId, 
-        gcsUri, 
-        startTime, 
-        endTime, 
-        outputFormat 
-      }),
+      body: JSON.stringify({ jobId, gcsUri, startTime, endTime, outputFormat }),
       headers: { 'Content-Type': 'application/json' },
     })
     .then(response => {
       if (!response.ok) {
         response.text().then(text => {
-          console.error(`Error triggering GCF Clipper for job ${jobId}. Status: ${response.status}. Body: ${text}`);
+          console.error(`[ACTIONS.TS][${jobId}] Error triggering GCF Clipper. Status: ${response.status}. Body: ${text}`);
         });
       } else {
-        console.log(`Successfully triggered GCF Clipper for job ${jobId}`);
+        console.log(`[ACTIONS.TS][${jobId}] Successfully triggered GCF Clipper.`);
       }
     })
     .catch(triggerError => {
-      console.error(`Network or other error triggering GCF Clipper for job ${jobId}:`, triggerError);
+      console.error(`[ACTIONS.TS][${jobId}] Network or other error triggering GCF Clipper:`, triggerError);
     });
 
-    return { success: true, jobId };
+    return { 
+        success: true, 
+        jobId,
+        debugMessage: `[ACTIONS.TS][${jobId}] requestVideoClipAction: Successfully initiated job and sent trigger to GCF Clipper.` 
+    };
   } catch (error: any) {
-    console.error('Error requesting video clip job:', error);
-    const clientErrorMessage = error instanceof Error ? error.message : 'Failed to create video clip job in Firestore.';
+    console.error(`[ACTIONS.TS][${jobId}] CATCH_ERROR in requestVideoClipAction (likely Firestore setDoc):`, error.message, error.stack);
     return {
       success: false,
-      error: clientErrorMessage,
+      error: error.message || 'Failed to create video clip job in Firestore.',
+      debugMessage: `[ACTIONS.TS][${jobId}] requestVideoClipAction: Firestore setDoc error - ${error.message}`
     };
   }
 }

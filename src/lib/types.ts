@@ -1,55 +1,73 @@
-// It's unusual to have 'use server' in a types file, but harmless.
-// 'use server'; 
+// src/lib/types.ts
 
-import type { GenerateTranscriptOutput } from '@/ai/flows/generate-transcript';
-// Import SuggestHotspotsOutput and alias it to make the re-export clear
+import type { GenerateTranscriptOutput as OriginalGenerateTranscriptOutput } from '@/ai/flows/generate-transcript';
 import type { SuggestHotspotsOutput as OriginalSuggestHotspotsOutput } from '@/ai/flows/suggest-hotspots';
 
-// Explicitly re-export SuggestHotspotsOutput so it can be imported from this module
+// --- Re-exported AI Flow Output Types ---
+export type GenerateTranscriptOutput = OriginalGenerateTranscriptOutput;
 export type SuggestHotspotsOutput = OriginalSuggestHotspotsOutput;
 
-export type Word = GenerateTranscriptOutput['words'][0];
-export type Transcript = GenerateTranscriptOutput;
-// Hotspot type is derived from the re-exported SuggestHotspotsOutput
-export type Hotspot = OriginalSuggestHotspotsOutput[0];
+// --- Core Transcript Structure ---
+export interface Word {
+  text: string;
+  start: number; // seconds
+  end: number;   // seconds
+  confidence?: number;
+  speaker?: number; // Speaker ID from diarization
+  punctuated_word?: string; // Word with punctuation, if available
+}
 
+export interface Transcript {
+  words: Word[];
+  // You could add overall transcript metadata here if needed, e.g.:
+  // confidence?: number;
+  // duration?: number; // Total duration of the transcribed audio
+  // language_code?: string;
+}
 
+// --- Hotspot Structure ---
+// Assuming SuggestHotspotsOutput from your Genkit flow is an array of objects directly:
+export type Hotspot = OriginalSuggestHotspotsOutput[0]; 
+
+// --- UI and Editor Specific Types ---
 export interface BrandOptions {
-  logo?: string; // data URL for the logo
+  logo?: string; // data URL for the logo, or path to a GCS object
   primaryColor: string;
-  font: 'Inter' | 'Space Grotesk';
+  font: 'Inter' | 'Space Grotesk' | string; // Allow custom font strings
 }
 
 export interface Selection {
-  start: number;
-  end: number;
+  start: number; // in seconds
+  end: number;   // in seconds
 }
 
-// Defines the possible states of a job (can be reused for transcription, clipping, etc.)
+// --- Job Management Types ---
 export type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
-// Represents the structure of a transcription job document in Firestore
 export interface TranscriptionJob {
   id: string; 
-  gcsUri: string;
+  gcsUri: string; // GCS URI of the source video
   status: JobStatus;
-  createdAt: any; // Firestore Timestamp, consider a more specific type if using a converter
-  updatedAt: any; // Firestore Timestamp, consider a more specific type if using a converter
-  transcript?: Transcript; 
-  error?: string; 
+  createdAt: any; // Firestore Timestamp
+  updatedAt: any; // Firestore Timestamp
+  transcript?: Transcript; // The final transcript data
+  error?: string; // Error message if the job failed
+  workerStartedAt?: any; // Timestamp
+  workerCompletedAt?: any; // Timestamp
 }
 
-// Represents the structure of a video clipping job document in Firestore
 export interface ClippingJob {
   id: string; 
-  userId?: string; 
+  userId?: string; // Optional: if you associate clips with users
   sourceVideoGcsUri: string; 
-  startTime: number; 
-  endTime: number; 
+  startTime: number; // seconds
+  endTime: number;   // seconds
   status: JobStatus; 
-  outputFormat?: string; 
-  createdAt: any; 
-  updatedAt: any; 
-  clippedVideoGcsUri?: string; 
-  error?: string; 
+  outputFormat?: string; // e.g., 'mp4'
+  createdAt: any; // Firestore Timestamp
+  updatedAt: any; // Firestore Timestamp
+  clippedVideoGcsUri?: string; // GCS URI of the final clip
+  error?: string; // Error message if the job failed
+  workerStartedAt?: any; // Timestamp
+  workerCompletedAt?: any; // Timestamp
 }
