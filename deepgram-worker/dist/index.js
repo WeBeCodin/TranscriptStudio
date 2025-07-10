@@ -34,8 +34,9 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deepgramTranscriptionWorker = void 0;
-console.log('[DEEPGRAM_WORKER_LOG] V2 START: Loading deepgram-worker/index.ts');
+console.log('[DEEPGRAM_WORKER_LOG] V8 Corrected START: Loading deepgram-worker/index.ts');
 const admin = __importStar(require("firebase-admin"));
+// Correct imports for Deepgram SDK v3.x - using createClient
 const sdk_1 = require("@deepgram/sdk");
 let db;
 let storageBucket;
@@ -56,7 +57,7 @@ try {
         console.error('[DEEPGRAM_WORKER_LOG] !!! CRITICAL_ERROR_NO_DEEPGRAM_KEY: DEEPGRAM_API_KEY environment variable not set.');
         throw new Error('DEEPGRAM_API_KEY environment variable not set.');
     }
-    deepgram = new sdk_1.DeepgramClient(DEEPGRAM_API_KEY);
+    deepgram = (0, sdk_1.createClient)(DEEPGRAM_API_KEY);
     console.log('[DEEPGRAM_WORKER_LOG] STEP_INIT_DEEPGRAM_SUCCESS: Deepgram client initialized.');
 }
 catch (e) {
@@ -125,20 +126,35 @@ const deepgramTranscriptionWorker = async (req, res) => {
             throw new Error('Deepgram transcription result is empty or undefined.');
         }
         const words = [];
-        result.results?.utterances?.forEach(utterance => {
-            utterance.words?.forEach((dgWord) => {
+        const dgResult = result;
+        if (dgResult.results?.utterances && dgResult.results.utterances.length > 0) {
+            dgResult.results.utterances.forEach((utterance) => {
+                utterance.words?.forEach((dgWord) => {
+                    words.push({
+                        text: dgWord.word,
+                        start: dgWord.start,
+                        end: dgWord.end,
+                        confidence: dgWord.confidence,
+                        speaker: utterance.speaker,
+                        punctuated_word: dgWord.punctuated_word || dgWord.word,
+                    });
+                });
+            });
+        }
+        else if (dgResult.results?.channels && dgResult.results.channels[0]?.alternatives && dgResult.results.channels[0].alternatives[0]?.words) {
+            dgResult.results.channels[0].alternatives[0].words.forEach((dgWord) => {
                 words.push({
                     text: dgWord.word,
                     start: dgWord.start,
                     end: dgWord.end,
                     confidence: dgWord.confidence,
-                    speaker: utterance.speaker,
+                    speaker: dgWord.speaker,
                     punctuated_word: dgWord.punctuated_word || dgWord.word,
                 });
             });
-        });
+        }
         if (words.length === 0) {
-            console.warn(`[DEEPGRAM_WORKER_LOG][${jobId}] WARN_NO_WORDS_TRANSCRIBED: No words transcribed. Deepgram raw result (summary):`, JSON.stringify(result, null, 2).substring(0, 500) + "...");
+            console.warn(`[DEEPGRAM_WORKER_LOG][${jobId}] WARN_NO_WORDS_TRANSCRIBED: No words extracted. Deepgram raw result (summary):`, JSON.stringify(result, null, 2).substring(0, 1000) + "...");
         }
         const finalTranscript = { words };
         console.log(`[DEEPGRAM_WORKER_LOG][${jobId}] STEP_TRANSCRIPTION_SUCCESS: Word count: ${words.length}. Updating Firestore.`);
@@ -170,5 +186,5 @@ const deepgramTranscriptionWorker = async (req, res) => {
     }
 };
 exports.deepgramTranscriptionWorker = deepgramTranscriptionWorker;
-console.log('[DEEPGRAM_WORKER_LOG] V2 END: deepgramTranscriptionWorker function defined and exported. Script load complete.');
+console.log('[DEEPGRAM_WORKER_LOG] V8 Corrected END: deepgramTranscriptionWorker function defined and exported. Script load complete.');
 //# sourceMappingURL=index.js.map
