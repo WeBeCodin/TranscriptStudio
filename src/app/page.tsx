@@ -7,7 +7,13 @@ import { Editor } from '@/components/editor';
 import { storage } from '@/lib/firebase';
 import { ref, uploadBytesResumable } from 'firebase/storage'; 
 import type { FirebaseError } from 'firebase/app';
-import { requestTranscriptionAction, suggestHotspotsAction, ActionResult } from '@/app/actions'; 
+import { Button } from '@/components/ui/button'; 
+import { Loader2 } from 'lucide-react'; 
+import { 
+  requestTranscriptionAction, 
+  suggestHotspotsAction, 
+  ActionResult 
+} from '@/app/actions'; 
 import type { BrandOptions, Hotspot, Transcript, TranscriptionJob, SuggestHotspotsOutput } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
@@ -17,7 +23,7 @@ import { v4 as uuidv4 } from 'uuid';
 export default function Home() {
   const [videoFile, setVideoFile] = React.useState<File | null>(null);
   const [videoUrl, setVideoUrl] = React.useState<string | null>(null); 
-  const [gcsVideoUri, setGcsVideoUri] = React.useState<string | null>(null); 
+  const [gcsUploadPath, setGcsUploadPath] = React.useState<string | null>(null); 
   const [transcript, setTranscript] = React.useState<Transcript | null>(null);
   const [hotspots, setHotspots] = React.useState<Hotspot[] | null>(null);
   const [isProcessing, setIsProcessing] = React.useState(false); 
@@ -33,57 +39,61 @@ export default function Home() {
 
   React.useEffect(() => {
     let unsubscribeFromTranscriptionJob: (() => void) | undefined = undefined;
-    if (!currentTranscriptionJobId) return;
+    if (!currentTranscriptionJobId) {
+      if (transcript || hotspots) {
+        setTranscript(null);
+        setHotspots(null);
+      }
+      if (!processingStatus.startsWith("Uploading")) {
+         setIsProcessing(false);
+      }
+      return;
+    }
 
+    console.log("[PAGE.TSX] useEffect listener attached for currentTranscriptionJobId:", currentTranscriptionJobId);
     setIsProcessing(true); 
-    setProcessingStatus('Transcription requested. Waiting for updates...');
+    setProcessingStatus('Transcription job active. Waiting for updates...');
     
     unsubscribeFromTranscriptionJob = onSnapshot(doc(db, "transcriptionJobs", currentTranscriptionJobId), async (jobDoc) => {
+      console.log("[PAGE.TSX] Firestore onSnapshot callback for JobId:", currentTranscriptionJobId, "Exists:", jobDoc.exists());
       if (jobDoc.exists()) {
         const jobData = jobDoc.data() as Omit<TranscriptionJob, 'id' | 'createdAt' | 'updatedAt'> & { createdAt: Timestamp, updatedAt: Timestamp };
-        setProcessingStatus(`Job ${jobData.status.toLowerCase()}...`);
+        const currentStatusDisplay = `Job status: ${jobData.status?.toLowerCase() || 'unknown'}...`;
+        setProcessingStatus(currentStatusDisplay);
 
         switch (jobData.status) {
           case 'PROCESSING':
-            setProcessingStatus('AI is processing the video...');
+            setProcessingStatus('AI is processing video for transcription...');
             break;
           case 'COMPLETED':
             if (jobData.transcript) {
               setTranscript(jobData.transcript);
-              toast({
-                title: "Transcript Generated",
-                description: "The transcript is ready.",
-              });
-
+              toast({ title: "Transcript Generated", description: "The transcript is ready." });
               setProcessingStatus('Analyzing for hotspots...');
               const fullTranscriptText = jobData.transcript.words.map(w => w.text).join(' ');
-              const hotspotsResult = await suggestHotspotsAction({ transcript: fullTranscriptText }) as ActionResult<SuggestHotspotsOutput>;
-
-              if (!hotspotsResult.success || !hotspotsResult.data || hotspotsResult.data.length === 0) { 
-                console.warn('Could not generate hotspots or no hotspots found.', hotspotsResult.error);
-                setHotspots([]); 
-                 if(hotspotsResult.error && hotspotsResult.success === false) { 
-                    toast({ variant: "destructive", title: "Hotspot Suggestion Error", description: hotspotsResult.error });
-                 }
-              } else {
-                setHotspots(hotspotsResult.data);
-                toast({
-                  title: "Hotspots Suggested",
-                  description: "AI has identified key moments for you.",
-                });
+              try {
+                const hotspotsResult = await suggestHotspotsAction({ transcript: fullTranscriptText }) as ActionResult<SuggestHotspotsOutput>;
+                if (hotspotsResult.success && hotspotsResult.data) {
+                  setHotspots(hotspotsResult.data);
+                  if (hotspotsResult.data.length > 0) toast({ title: "Hotspots Suggested" });
+                } else {
+                  console.warn('Hotspot generation failed or no hotspots found:', hotspotsResult.error, hotspotsResult.debugMessage);
+                  toast({ variant: "destructive", title: "Hotspot Suggestion", description: hotspotsResult.error || "No hotspots suggested or an error occurred."});
+                  setHotspots([]);
+                }
+              } catch (e:any) { 
+                console.error('suggestHotspotsAction threw an error:',e); 
+                toast({variant:"destructive", title:"Hotspot Call Error", description:e.message}); 
+                setHotspots([]);
               }
-              setIsProcessing(false); 
-              setProcessingStatus('Processing complete!');
-              setCurrentTranscriptionJobId(null);
-            } else {
-              toast({ variant: "destructive", title: "Error", description: "Transcript missing for completed job." });
-              setIsProcessing(false);
-              setCurrentTranscriptionJobId(null);
+              setProcessingStatus('All processing complete!');
             }
+             setIsProcessing(false); 
+            setCurrentTranscriptionJobId(null); 
             if (typeof unsubscribeFromTranscriptionJob === 'function') unsubscribeFromTranscriptionJob();
             break;
           case 'FAILED':
-            console.error('Transcription job failed:', jobData.error);
+            console.error('Transcription job failed in Firestore:', jobData.error);
             toast({
               variant: "destructive",
               title: "Transcription Failed",
@@ -97,128 +107,194 @@ export default function Home() {
           case 'PENDING':
             setProcessingStatus('Transcription job is pending...');
             break;
+          default:
+            setProcessingStatus(`Job status: ${jobData.status || 'unknown'}`);
+            break;
         }
       } else {
         console.warn("Transcription job document not found for ID:", currentTranscriptionJobId);
+        toast({variant:"destructive", title:"Error", description:"Transcription job tracking lost."});
         setIsProcessing(false); 
-        setProcessingStatus('Transcription job details not found.');
+        setProcessingStatus('Error: Job details not found.');
         setCurrentTranscriptionJobId(null);
         if (typeof unsubscribeFromTranscriptionJob === 'function') unsubscribeFromTranscriptionJob();
       }
     }, (error) => {
       console.error("Error listening to transcription job updates:", error);
-      toast({
-        variant: "destructive",
-        title: "Connection Error",
-        description: "Could not listen for transcription updates.",
-      });
+      toast({ variant: "destructive", title: "Connection Error", description: "Could not listen for transcription updates."});
       setIsProcessing(false);
       setProcessingStatus('Error listening for transcription updates.');
       setCurrentTranscriptionJobId(null); 
     });
 
     return () => {
-        if (typeof unsubscribeFromTranscriptionJob === 'function') unsubscribeFromTranscriptionJob();
+      if (typeof unsubscribeFromTranscriptionJob === 'function') {
+        console.log("[PAGE.TSX] Unsubscribing Firestore listener for:", currentTranscriptionJobId);
+        unsubscribeFromTranscriptionJob();
+      }
     };
   }, [currentTranscriptionJobId, toast]);
 
   const resetState = (keepVideo: boolean = false) => {
+    console.log("[PAGE.TSX] resetState called. keepVideo:", keepVideo);
     if (!keepVideo) {
       setVideoFile(null);
       setVideoUrl(null);
-      setGcsVideoUri(null);
+      setGcsUploadPath(null);
     }
     setTranscript(null);
     setHotspots(null);
     setIsProcessing(false);
     setProcessingStatus('');
     setUploadProgress(0);
+    if (currentTranscriptionJobId) { 
+        console.log("[PAGE.TSX] Clearing currentTranscriptionJobId in resetState. Was:", currentTranscriptionJobId);
+    }
     setCurrentTranscriptionJobId(null);
   };
 
   const handleFileUpload = async (file: File) => {
-    if (isProcessing && currentTranscriptionJobId) { 
-        toast({ title: "Processing...", description: "A video is already being processed for transcription."});
+    if (isProcessing && processingStatus.startsWith("Uploading")) {
+        toast({ title: "Upload in Progress", description: "Please wait for the current upload to complete."});
         return;
     }
-
+    console.log("[CLIENT-SIDE /app/page.tsx] handleFileUpload: Process started for file:", file.name);
     resetState(); 
     setVideoFile(file);
     setVideoUrl(URL.createObjectURL(file)); 
     setIsProcessing(true); 
-    setProcessingStatus('Starting upload...');
+    setProcessingStatus('Starting GCS upload...');
     setUploadProgress(0);
 
     try {
-      await new Promise<string>((resolve, reject) => {
+      console.log("[CLIENT-SIDE /app/page.tsx] handleFileUpload: Attempting GCS upload.");
+      const gcsPathValue = await new Promise<string>((resolve, reject) => {
         const storagePath = `videos/${Date.now()}-${file.name}`;
         const fileRef = ref(storage, storagePath);
         const uploadTask = uploadBytesResumable(fileRef, file);
 
-        uploadTask.on(
-          'state_changed',
+        uploadTask.on('state_changed',
           (snapshot) => {
             const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
             setUploadProgress(progress);
-            setProcessingStatus(`Uploading video... ${Math.round(progress)}%`);
+            setProcessingStatus(`Uploading to GCS... ${Math.round(progress)}%`);
           },
           (error: FirebaseError) => { 
-            console.error("Firebase Storage Error:", error);
+            console.error("[CLIENT-SIDE /app/page.tsx] Firebase Storage Error during upload:", error);
             let message = `Upload failed: ${error.message}`;
             if (error.code === 'storage/unauthorized') {
-              message = "Permission denied. Please check your Firebase Storage rules.";
+              message = "Permission denied. Check Storage rules.";
             } else if (error.code === 'storage/canceled') {
               message = "Upload canceled.";
             }
             reject(new Error(message));
           },
-          async () => {
-            const gcsUriToSet = `gs://${uploadTask.snapshot.ref.bucket}/${uploadTask.snapshot.ref.fullPath}`;
-            setGcsVideoUri(gcsUriToSet); 
-            resolve(gcsUriToSet);
+          async () => { 
+            const path = `gs://${uploadTask.snapshot.ref.bucket}/${uploadTask.snapshot.ref.fullPath}`;
+            console.log("[CLIENT-SIDE /app/page.tsx] GCS Upload successful. GCS Path:", path);
+            resolve(path);
           }
         );
       });
-      
-      // --- Transcription Request Disabled ---
-      setProcessingStatus('Upload complete! Ready for editing.');
+
+      setGcsUploadPath(gcsPathValue);
+      setProcessingStatus(`Upload complete! Video ready.`); 
       setIsProcessing(false); 
-      toast({
-        title: "Upload Successful",
-        description: "Your video is ready for editing or clipping.",
-      });
-      // --- End of Disabled Transcription ---
+      toast({ title: "Upload Successful", description: "Video is uploaded. Click 'Transcribe Video' to proceed." });
+      console.log("[CLIENT-SIDE /app/page.tsx] Video uploaded. Transcription will be manually triggered via button.");
 
     } catch (error: any) {
-      console.error('File upload or processing request failed:', error);
+      console.error('[CLIENT-SIDE /app/page.tsx] Error in handleFileUpload (during GCS upload):', error);
+      console.error('[CLIENT-SIDE /app/page.tsx] Actual error object caught during GCS upload:', error);
       toast({
         variant: "destructive",
-        title: "Oh no! Something went wrong during upload.",
-        description: error.message || "An unknown error occurred.",
+        title: "Upload Failed",
+        description: error.message || "An unknown error occurred during video upload.",
       });
-      resetState(); 
+      resetState();
     }
   };
 
+  const handleRequestTranscription = async () => {
+    if (!gcsUploadPath) {
+      toast({ title: "No Video Uploaded", description: "Please upload a video first.", variant: "destructive"});
+      return;
+    }
+    if (isProcessing && currentTranscriptionJobId) { 
+        toast({ title: "Processing...", description: "A transcription job is already in progress."});
+        return;
+    }
+    console.log("[CLIENT-SIDE /app/page.tsx] handleRequestTranscription: Called. GCS Path:", gcsUploadPath);
+    setIsProcessing(true); 
+    setProcessingStatus('Requesting transcription...');
+    setTranscript(null); 
+    setHotspots(null);   
+    const newJobId = uuidv4();
+
+    try {
+        console.log("[CLIENT-SIDE /app/page.tsx] Attempting to call requestTranscriptionAction with jobId:", newJobId, "and gcsUri:", gcsUploadPath);
+        const result = await requestTranscriptionAction({ gcsUri: gcsUploadPath, jobId: newJobId }) as ActionResult;
+        
+        console.log("[CLIENT-SIDE /app/page.tsx] requestTranscriptionAction raw result:", result);
+
+        if (result && result.debugMessage) { 
+            console.log("%c[CLIENT-SIDE DEBUG] Server Action Debug Message:", "color: blue; font-weight: bold;", result.debugMessage);
+        }
+        if (result?.success && result.jobId) {
+            console.log("[CLIENT-SIDE /app/page.tsx] requestTranscriptionAction call successful. Setting currentTranscriptionJobId:", result.jobId);
+            setCurrentTranscriptionJobId(result.jobId); 
+        } else {
+            console.error("[CLIENT-SIDE /app/page.tsx] requestTranscriptionAction call FAILED. Full result:", result);
+            throw new Error(result?.error || result?.debugMessage || 'Failed to start transcription job.');
+        }
+    } catch (error: any) {
+        console.error('[CLIENT-SIDE /app/page.tsx] Error in handleRequestTranscription catch block:', error);
+        console.error('[CLIENT-SIDE /app/page.tsx] Actual error object caught in handleRequestTranscription:', error);
+        toast({ variant: "destructive", title: "Transcription Request Failed", description: error.message || "Could not start transcription." });
+        setIsProcessing(false); 
+        setProcessingStatus('Transcription request failed.');
+        setCurrentTranscriptionJobId(null); 
+    }
+  };
+
+  const showEditorComponent = videoUrl && gcsUploadPath;
+  const showTranscribeButton = showEditorComponent && !transcript && !currentTranscriptionJobId && !isProcessing;
+  const showUploaderComponent = !showEditorComponent;
+  const showProcessingSpinner = isProcessing && !processingStatus.startsWith("Uploading");
+
   return (
     <div className="flex flex-col min-h-screen bg-background">
-      <AppHeader brandOptions={brandOptions} onBrandOptionsChange={setBrandOptions} onNewVideo={() => resetState()} isEditing={!!videoFile} />
+      <AppHeader brandOptions={brandOptions} onBrandOptionsChange={setBrandOptions} onNewVideo={() => resetState(false)} isEditing={!!videoFile} />
       <main className="flex-grow flex flex-col items-center justify-center p-4 sm:p-6 md:p-8">
-        {videoUrl && gcsVideoUri ? ( 
+        
+        {showTranscribeButton && (
+          <Button onClick={handleRequestTranscription} className="my-4">
+            Transcribe Video
+          </Button>
+        )}
+        
+        {showEditorComponent ? (
           <Editor
-            videoUrl={videoUrl}
-            gcsVideoUri={gcsVideoUri} 
-            transcript={transcript}
-            hotspots={hotspots}
+            videoUrl={videoUrl} 
+            gcsVideoUri={gcsUploadPath} 
+            transcript={transcript} 
+            hotspots={hotspots}   
             brandOptions={brandOptions}
           />
         ) : (
           <VideoUploader 
             onFileUpload={handleFileUpload} 
-            isProcessing={isProcessing} 
+            isProcessing={isProcessing && processingStatus.startsWith("Uploading")} 
             status={processingStatus} 
             progress={uploadProgress} 
           />
+        )}
+        
+        {showProcessingSpinner && (
+            <div className="mt-4 text-center">
+                <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+                <p className="mt-2 text-sm text-muted-foreground">{processingStatus || "Processing..."}</p>
+            </div>
         )}
       </main>
     </div>

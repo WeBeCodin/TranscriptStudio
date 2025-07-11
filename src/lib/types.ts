@@ -19,21 +19,16 @@ export interface Word {
 
 export interface Transcript {
   words: Word[];
-  // You could add overall transcript metadata here if needed, e.g.:
-  // confidence?: number;
-  // duration?: number; // Total duration of the transcribed audio
-  // language_code?: string;
 }
 
 // --- Hotspot Structure ---
-// Assuming SuggestHotspotsOutput from your Genkit flow is an array of objects directly:
 export type Hotspot = OriginalSuggestHotspotsOutput[0]; 
 
 // --- UI and Editor Specific Types ---
 export interface BrandOptions {
-  logo?: string; // data URL for the logo, or path to a GCS object
+  logo?: string; 
   primaryColor: string;
-  font: 'Inter' | 'Space Grotesk' | string; // Allow custom font strings
+  font: 'Inter' | 'Space Grotesk' | string; 
 }
 
 export interface Selection {
@@ -46,28 +41,24 @@ export type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
 export interface TranscriptionJob {
   id: string; 
-  gcsUri: string; // GCS URI of the source video
+  gcsUri: string; 
   status: JobStatus;
-  createdAt: any; // Firestore Timestamp
-  updatedAt: any; // Firestore Timestamp
-  transcript?: Transcript; // The final transcript data
-  error?: string; // Error message if the job failed
-  workerStartedAt?: any; // Timestamp
-  workerCompletedAt?: any; // Timestamp
+  createdAt: any; 
+  updatedAt: any; 
+  transcript?: Transcript; 
+  error?: string; 
 }
 
 export interface ClippingJob {
   id: string; 
-  userId?: string; // Optional: if you associate clips with users
+  userId?: string; 
   sourceVideoGcsUri: string; 
-  startTime: number; // seconds
-  endTime: number;   // seconds
+  startTime: number; 
+  endTime: number;   
   status: JobStatus; 
-  outputFormat?: string; // e.g., 'mp4'
-  createdAt: any; // Firestore Timestamp
-  updatedAt: any; // Firestore Timestamp
-  clippedVideoGcsUri?: string; // GCS URI of the final clip
-  error?: string; // Error message if the job failed
-  workerStartedAt?: any; // Timestamp
-  workerCompletedAt?: any; // Timestamp
+  outputFormat?: string; 
+  createdAt: any; 
+  updatedAt: any; 
+  clippedVideoGcsUri?: string; 
+  error?: string; 
 }

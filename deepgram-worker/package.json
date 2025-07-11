@@ -1,24 +1,25 @@
 {
-    "name": "deepgram-transcription-worker",
-    "version": "1.0.0",
-    "description": "GCF for transcribing audio using Deepgram API",
-    "main": "dist/index.js",
-    "scripts": {
-      "build": "tsc",
-      "start": "node dist/index.js",
-      "gcp-deploy": "gcloud functions deploy deepgramTranscriptionWorker --gen2 --runtime nodejs18 --trigger-http --allow-unauthenticated --region YOUR_REGION --source . --entry-point deepgramTranscriptionWorker --set-env-vars DEEPGRAM_API_KEY=YOUR_DEEPGRAM_KEY"
-    },
-    "dependencies": {
-      "@deepgram/sdk": "^3.0.0",
-      "firebase-admin": "^12.0.0",
-      "@google-cloud/storage": "^7.0.0"
-    },
-    "devDependencies": {
-      "typescript": "^5.0.0",
-      "@types/node": "^18.0.0",
-      "@types/express": "^4.17.17"
-    },
-    "engines": {
-      "node": "18"
-    }
+  "name": "deepgram-transcription-worker",
+  "version": "1.0.0",
+  "description": "GCF for transcribing audio using Deepgram API",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "gcp-deploy-helper": "echo 'Remember to replace YOUR_REGION and YOUR_DEEPGRAM_KEY in the actual gcloud command' && gcloud functions deploy deepgramTranscriptionWorker --gen2 --runtime nodejs18 --trigger-http --allow-unauthenticated --region YOUR_REGION --source . --entry-point deepgramTranscriptionWorker --set-env-vars DEEPGRAM_API_KEY=YOUR_DEEPGRAM_KEY --timeout=540s --memory=1Gi"
+  },
+  "dependencies": {
+    "@deepgram/sdk": "^3.0.0",
+    "firebase-admin": "^12.0.0",
+    "@google-cloud/storage": "^7.0.0",
+    "express": "^4.17.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^18.0.0",
+    "@types/express": "^4.17.17"
+  },
+  "engines": {
+    "node": "18"
   }
+}

@@ -3,17 +3,18 @@ console.log('[DEEPGRAM_WORKER_LOG] V8 Corrected START: Loading deepgram-worker/i
 import type { Request, Response } from 'express';
 import * as admin from 'firebase-admin';
 // Correct imports for Deepgram SDK v3.x - using createClient
-import { createClient, DeepgramClient, PrerecordedSchema } from '@deepgram/sdk';
-import { GetSignedUrlConfig, Bucket } from '@google-cloud/storage';
+import { createClient, DeepgramClient, PrerecordedSchema } from '@deepgram/sdk'; 
+import { GetSignedUrlConfig, Bucket } from '@google-cloud/storage'; 
 
 export type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
+// Local Word and Transcript types
 export interface Word {
   text: string;
-  start: number;
-  end: number;
+  start: number; 
+  end: number;   
   confidence?: number;
-  speaker?: number;
+  speaker?: number; 
   punctuated_word?: string;
 }
 export interface Transcript {
@@ -21,21 +22,21 @@ export interface Transcript {
 }
 
 let db: admin.firestore.Firestore;
-let storageBucket: Bucket;
-let deepgram: DeepgramClient;
+let storageBucket: Bucket; 
+let deepgram: DeepgramClient; 
 
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
-const TARGET_BUCKET_NAME = 'transcript-studio-4drhv.appspot.com';
+const TARGET_BUCKET_NAME = 'transcript-studio-4drhv.appspot.com'; 
 
 try {
   console.log('[DEEPGRAM_WORKER_LOG] STEP_INIT_FIREBASE: Initializing Firebase Admin SDK...');
   if (admin.apps.length === 0) {
     admin.initializeApp({
-      storageBucket: TARGET_BUCKET_NAME,
+      storageBucket: TARGET_BUCKET_NAME, 
     });
   }
   db = admin.firestore();
-  storageBucket = admin.storage().bucket(TARGET_BUCKET_NAME);
+  storageBucket = admin.storage().bucket(TARGET_BUCKET_NAME); 
   console.log(`[DEEPGRAM_WORKER_LOG] STEP_INIT_FIREBASE_SUCCESS: Firebase Admin SDK initialized (DB and Storage for bucket '${storageBucket.name}').`);
 
   if (!DEEPGRAM_API_KEY) {
@@ -43,18 +44,18 @@ try {
     throw new Error('DEEPGRAM_API_KEY environment variable not set.');
   }
 
-  deepgram = createClient(DEEPGRAM_API_KEY);
-
+  deepgram = createClient(DEEPGRAM_API_KEY); 
+  
   console.log('[DEEPGRAM_WORKER_LOG] STEP_INIT_DEEPGRAM_SUCCESS: Deepgram client initialized.');
 
 } catch (e: any) {
   console.error('[DEEPGRAM_WORKER_LOG] !!! CRITICAL_ERROR_INITIAL_SETUP:', e.message, e.stack);
-  process.exit(1);
+  process.exit(1); 
 }
 
 interface TranscriptionWorkerInput {
   jobId: string;
-  gcsUri: string;
+  gcsUri: string; 
 }
 
 export const deepgramTranscriptionWorker = async (req: Request, res: Response): Promise<void> => {
@@ -101,7 +102,7 @@ export const deepgramTranscriptionWorker = async (req: Request, res: Response): 
     if (bucketNameFromUri !== TARGET_BUCKET_NAME) {
         console.warn(`[DEEPGRAM_WORKER_LOG][${jobId}] WARN_BUCKET_MISMATCH: GCS URI bucket '${bucketNameFromUri}' differs from target bucket '${TARGET_BUCKET_NAME}'. Using URI's bucket for signed URL.`);
     }
-
+    
     const fileInBucket = admin.storage().bucket(bucketNameFromUri).file(filePath);
 
     const signedUrlConfig: GetSignedUrlConfig = {
@@ -111,19 +112,19 @@ export const deepgramTranscriptionWorker = async (req: Request, res: Response): 
     const [signedUrl] = await fileInBucket.getSignedUrl(signedUrlConfig);
     console.log(`[DEEPGRAM_WORKER_LOG][${jobId}] STEP_SIGNED_URL_GENERATED: Generated signed URL for GCS file.`);
 
-    const options: PrerecordedSchema = {
-      model: 'nova-2',
+    const options: PrerecordedSchema = { 
+      model: 'nova-2', 
       smart_format: true,
       punctuate: true,
-      diarize: true,
-      utterances: true,
+      diarize: true, 
+      utterances: true, 
       numerals: true,
     };
 
     console.log(`[DEEPGRAM_WORKER_LOG][${jobId}] STEP_DEEPGRAM_REQUEST: Sending audio to Deepgram. Options:`, JSON.stringify(options));
-
+    
     const { result, error: dgError } = await deepgram.listen.prerecorded.transcribeUrl(
-        { url: signedUrl },
+        { url: signedUrl }, 
         options
     );
 
@@ -136,12 +137,12 @@ export const deepgramTranscriptionWorker = async (req: Request, res: Response): 
       console.error(`[DEEPGRAM_WORKER_LOG][${jobId}] ERROR_DEEPGRAM_NO_RESULT: Deepgram transcription result is empty.`);
       throw new Error('Deepgram transcription result is empty or undefined.');
     }
-
+    
     const words: Word[] = [];
-    const dgResult: any = result;
+    const dgResult: any = result; 
     if (dgResult.results?.utterances && dgResult.results.utterances.length > 0) {
-        dgResult.results.utterances.forEach((utterance: any) => {
-            utterance.words?.forEach((dgWord: any) => {
+        dgResult.results.utterances.forEach((utterance: any) => { 
+            utterance.words?.forEach((dgWord: any) => { 
                 words.push({
                     text: dgWord.word,
                     start: dgWord.start,
@@ -159,7 +160,7 @@ export const deepgramTranscriptionWorker = async (req: Request, res: Response): 
                 start: dgWord.start,
                 end: dgWord.end,
                 confidence: dgWord.confidence,
-                speaker: dgWord.speaker,
+                speaker: dgWord.speaker, 
                 punctuated_word: dgWord.punctuated_word || dgWord.word,
             });
         });
@@ -168,7 +169,7 @@ export const deepgramTranscriptionWorker = async (req: Request, res: Response): 
     if (words.length === 0) {
         console.warn(`[DEEPGRAM_WORKER_LOG][${jobId}] WARN_NO_WORDS_TRANSCRIBED: No words extracted. Deepgram raw result (summary):`, JSON.stringify(result, null, 2).substring(0, 1000) + "...");
     }
-
+    
     const finalTranscript: Transcript = { words };
 
     console.log(`[DEEPGRAM_WORKER_LOG][${jobId}] STEP_TRANSCRIPTION_SUCCESS: Word count: ${words.length}. Updating Firestore.`);
