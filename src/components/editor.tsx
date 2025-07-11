@@ -6,12 +6,15 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { TranscriptViewer } from '@/components/transcript-viewer';
-import type { BrandOptions, Hotspot, Selection, Transcript, Word } from '@/lib/types';
+import type { BrandOptions, Hotspot, Selection, Transcript, Word, JobStatus, ClippingJob } from '@/lib/types';
 import { formatTime, cn } from '@/lib/utils';
-import { Scissors, RectangleHorizontal, RectangleVertical, Square, Wand2, RefreshCw } from 'lucide-react';
+import { Scissors, RectangleHorizontal, RectangleVertical, Square, Wand2, RefreshCw, Download, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { generateVideoBackgroundAction, ActionResult } from '@/app/actions';
+import { generateVideoBackgroundAction, requestVideoClipAction, ActionResult } from '@/app/actions';
 import { Slider } from '@/components/ui/slider';
+import { getStorage, ref as storageFileRef, getDownloadURL } from 'firebase/storage';
+import { db } from '@/lib/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 interface EditorProps {
   videoUrl: string | null;
@@ -22,7 +25,7 @@ interface EditorProps {
 }
 
 export function Editor({ videoUrl, gcsVideoUri, transcript, hotspots, brandOptions }: EditorProps) {
-  console.log("[EDITOR.TSX] Props received:", { videoUrlGcs: gcsVideoUri, transcriptProp: transcript, hotspotsProp: hotspots, brandOptions });
+  console.log("[EDITOR.TSX] Props received:", { videoUrlGcs: gcsVideoUri, transcriptProp: transcript, hotspotsProp: hotspots });
 
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const [currentTime, setCurrentTime] = React.useState(0);
@@ -38,6 +41,11 @@ export function Editor({ videoUrl, gcsVideoUri, transcript, hotspots, brandOptio
   const [fillMode, setFillMode] = React.useState<'black' | 'blur' | 'generative'>('black');
   const [generativeBg, setGenerativeBg] = React.useState<string | null>(null);
   const [isGeneratingBg, setIsGeneratingBg] = React.useState(false);
+
+  const [isClipping, setIsClipping] = React.useState(false);
+  const [clippingStatus, setClippingStatus] = React.useState('');
+  const [currentClippingJobId, setCurrentClippingJobId] = React.useState<string | null>(null);
+  const [finalClipUrl, setFinalClipUrl] = React.useState<string | null>(null);
 
   const { toast } = useToast();
 
@@ -57,6 +65,109 @@ export function Editor({ videoUrl, gcsVideoUri, transcript, hotspots, brandOptio
     setPan({ x: 0, y: 0 });
   }, [aspectRatio]);
 
+  React.useEffect(() => {
+    const videoElement = videoRef.current;
+    if (videoElement && gcsVideoUri && !selection && !transcript) {
+      const setTestSelection = () => {
+        if (videoElement.duration && isFinite(videoElement.duration) && videoElement.duration > 0) {
+          let defaultStartTime = 1;
+          let defaultEndTime = Math.min(5, videoElement.duration - 0.01);
+
+          if (videoElement.duration <= 1.01) {
+            defaultStartTime = 0;
+            defaultEndTime = videoElement.duration;
+          } else if (videoElement.duration < 5) {
+             defaultStartTime = 1;
+             if(defaultStartTime >= videoElement.duration) defaultStartTime = 0;
+             defaultEndTime = videoElement.duration;
+          }
+
+          if (defaultEndTime > defaultStartTime) {
+            console.log(`[EDITOR.TSX] Setting default selection for clipping test: ${defaultStartTime.toFixed(2)}s to ${defaultEndTime.toFixed(2)}s`);
+            setSelection({ start: defaultStartTime, end: defaultEndTime });
+            toast({ title: "Test Selection Set", description: `Default selection: ${defaultStartTime.toFixed(1)}s to ${defaultEndTime.toFixed(1)}s. Adjust via transcript.`, duration: 4000 });
+          } else if (videoElement.duration > 0) {
+            console.log(`[EDITOR.TSX] Video too short for specific default. Selecting full video: 0s to ${videoElement.duration.toFixed(2)}s`);
+            setSelection({ start: 0, end: videoElement.duration });
+             toast({ title: "Test Selection Set", description: `Video short. Default: Full duration. Adjust via transcript.`, duration: 4000 });
+          } else {
+            console.warn("[EDITOR.TSX] Video duration still 0 or invalid, cannot set default selection yet.");
+          }
+        } else {
+          console.log("[EDITOR.TSX] Video duration not yet available or invalid for default selection when attempting to set.");
+        }
+      };
+
+      if (videoElement.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        setTestSelection();
+      } else {
+        const handleMetadataLoaded = () => {
+          console.log("[EDITOR.TSX] 'loadedmetadata' event fired for default selection.");
+          setTestSelection();
+          videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
+        };
+        videoElement.addEventListener('loadedmetadata', handleMetadataLoaded);
+        return () => {
+          videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
+        };
+      }
+    }
+  }, [gcsVideoUri, videoUrl, selection, transcript, toast]);
+
+  React.useEffect(() => {
+    if (!currentClippingJobId) {
+      setFinalClipUrl(null);
+      return;
+    }
+
+    setIsClipping(true);
+    setClippingStatus('Clipping job started. Waiting for updates...');
+    setFinalClipUrl(null);
+
+    console.log(`[EDITOR.TSX] Attaching Firestore listener for clipping job: ${currentClippingJobId}`);
+    const unsubscribeClipping = onSnapshot(doc(db, "clippingJobs", currentClippingJobId), async (jobDoc) => {
+      console.log(`[EDITOR.TSX] Clipping job update for ${currentClippingJobId}:`, jobDoc.data());
+      if (jobDoc.exists()) {
+        const jobData = jobDoc.data() as ClippingJob;
+        setClippingStatus(`Clip status: ${jobData.status.toLowerCase()}...`);
+
+        if (jobData.status === 'COMPLETED') {
+          if (jobData.clippedVideoGcsUri) {
+            try {
+              const fStorage = getStorage();
+              const clipFileRef = storageFileRef(fStorage, jobData.clippedVideoGcsUri);
+              const downloadUrl = await getDownloadURL(clipFileRef);
+              setFinalClipUrl(downloadUrl);
+              toast({ title: "Clip Ready!", description: "Your video clip has been processed." });
+              console.log(`[EDITOR.TSX] Clip ready. Download URL: ${downloadUrl}`);
+            } catch (error) {
+              console.error("[EDITOR.TSX] Error getting download URL for clip:", error);
+              toast({ variant: "destructive", title: "Error", description: "Could not get clip download URL." });
+              setFinalClipUrl(null);
+            }
+          } else {
+            toast({ variant: "destructive", title: "Error", description: "Clipping completed but no video URL found." });
+            setFinalClipUrl(null);
+          }
+          setIsClipping(false);
+          setCurrentClippingJobId(null);
+        } else if (jobData.status === 'FAILED') {
+          toast({ variant: "destructive", title: "Clipping Failed", description: jobData.error || "An unknown error occurred during clipping." });
+          setIsClipping(false);
+          setCurrentClippingJobId(null);
+          setFinalClipUrl(null);
+        }
+      } else {
+        console.warn(`[EDITOR.TSX] Clipping job document ${currentClippingJobId} not found while listener was active.`);
+      }
+    });
+
+    return () => {
+      console.log(`[EDITOR.TSX] Detaching Firestore listener for clipping job: ${currentClippingJobId}`);
+      unsubscribeClipping();
+    };
+  }, [currentClippingJobId, toast]);
+
   const handleTimeUpdate = () => {
     if (videoRef.current) {
       setCurrentTime(videoRef.current.currentTime);
@@ -70,11 +181,43 @@ export function Editor({ videoUrl, gcsVideoUri, transcript, hotspots, brandOptio
   };
 
   const handleCreateClip = async () => {
-    toast({
-      title: "Clipping Feature Disabled",
-      description: "The video clipping functionality is temporarily inactive.",
-      variant: "default"
-    });
+    if (!selection) {
+      toast({ title: "No Selection", description: "Please select a portion of the video to clip, or wait for default selection.", variant: "destructive" });
+      return;
+    }
+    if (!gcsVideoUri) {
+      toast({ title: "Video Not Processed", description: "Source video GCS URI is missing. Please re-upload.", variant: "destructive" });
+      return;
+    }
+    if (isClipping) {
+      toast({ title: "Processing...", description: "A clipping job is already in progress."});
+      return;
+    }
+
+    console.log(`[EDITOR.TSX] Requesting clip for ${gcsVideoUri} from ${selection.start}s to ${selection.end}s`);
+    setIsClipping(true);
+    setClippingStatus('Requesting video clip...');
+    setFinalClipUrl(null);
+
+    try {
+      const result = await requestVideoClipAction({
+        gcsUri: gcsVideoUri,
+        startTime: selection.start,
+        endTime: selection.end,
+      }) as ActionResult;
+
+      if (result.success && result.jobId) {
+        setCurrentClippingJobId(result.jobId);
+        toast({ title: "Clipping Job Started", description: `Job ID: ${result.jobId}. Waiting for completion...` });
+      } else {
+        throw new Error(result.error || result.debugMessage || "Failed to start clipping job. No specific error from action.");
+      }
+    } catch (error: any) {
+      console.error("[EDITOR.TSX] Error calling requestVideoClipAction:", error);
+      toast({ variant: "destructive", title: "Clipping Request Failed", description: error.message });
+      setIsClipping(false);
+      setClippingStatus('Clipping request failed.');
+    }
   };
 
   const handlePanMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -102,31 +245,49 @@ export function Editor({ videoUrl, gcsVideoUri, transcript, hotspots, brandOptio
         const videoElement = videoRef.current;
         await new Promise<void>((resolve, reject) => {
             if (videoElement.readyState >= HTMLMediaElement.HAVE_METADATA) resolve();
-            else { videoElement.onloadedmetadata = () => resolve(); videoElement.onerror = () => reject(new Error("Video metadata failed to load for background generation.")); }
+            else {
+                videoElement.onloadedmetadata = () => resolve();
+                videoElement.onerror = () => reject(new Error("Video metadata failed to load for background generation."));
+            }
         });
         if (!videoElement.videoWidth || !videoElement.videoHeight || videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
           throw new Error("Video dimensions are not available or invalid for background generation.");
         }
         const canvas = document.createElement('canvas');
-        canvas.width = videoElement.videoWidth; canvas.height = videoElement.videoHeight;
+        canvas.width = videoElement.videoWidth;
+        canvas.height = videoElement.videoHeight;
         const ctx = canvas.getContext('2d');
         if (!ctx) throw new Error('Could not get canvas context for background generation.');
-        if (videoElement.duration && isFinite(videoElement.duration) && videoElement.duration > 0) videoElement.currentTime = videoElement.duration / 2;
-        else videoElement.currentTime = 0;
+
+        let seekTime = 0;
+        if (videoElement.duration && isFinite(videoElement.duration) && videoElement.duration > 0) {
+            seekTime = videoElement.duration / 2;
+        }
+        videoElement.currentTime = seekTime;
+
         await new Promise<void>((resolve, reject) => {
+            if (videoElement.currentTime === seekTime || videoElement.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+                resolve();
+                return;
+            }
             videoElement.onseeked = () => resolve();
-            const seekTimeout = setTimeout(() => { console.warn("[EDITOR.TSX] Seek timeout during background generation, attempting to draw anyway."); resolve(); }, 1000);
+            const seekTimeout = setTimeout(() => {
+                console.warn("[EDITOR.TSX] Seek timeout during background generation, attempting to draw with current frame.");
+                resolve();
+            }, 1500);
             videoElement.onerror = () => { clearTimeout(seekTimeout); reject(new Error("Video seek failed for background generation."));}
-            if(videoElement.currentTime === videoElement.duration / 2 || (videoElement.currentTime === 0 && videoElement.duration === 0)) { clearTimeout(seekTimeout); resolve(); }
         });
+
         ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
         const frameDataUri = canvas.toDataURL('image/jpeg');
+
         const result = await generateVideoBackgroundAction({ frameDataUri }) as ActionResult<{ backgroundDataUri: string }>;
+
         if (result.success && result.data && result.data.backgroundDataUri) {
             setGenerativeBg(result.data.backgroundDataUri);
             toast({ title: "AI Background Generated!" });
         } else {
-            throw new Error(result.error || 'AI background generation flow failed to return a valid image data URI.');
+            throw new Error(result.error || result.debugMessage || 'AI background generation flow failed to return a valid image data URI.');
         }
     } catch (error: any) {
         console.error('[EDITOR.TSX] Generative background fill failed:', error.message, error.stack);
@@ -137,10 +298,9 @@ export function Editor({ videoUrl, gcsVideoUri, transcript, hotspots, brandOptio
     }
   };
 
-  const selectionDuration = selection ? selection.end - selection.start : 0;
+  const selectionDuration = selection ? Math.max(0, selection.end - selection.start) : 0;
 
   return (
-    // JSX structure remains the same as your last correct version
     <div className="w-full max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
       <div className="lg:col-span-2 flex flex-col gap-4 h-full">
         <div className="flex-grow flex flex-col gap-4">
@@ -213,7 +373,7 @@ export function Editor({ videoUrl, gcsVideoUri, transcript, hotspots, brandOptio
             <div className="text-sm">
                 <p className="font-semibold font-headline">Selected Clip</p>
                 <p className="text-muted-foreground">
-                    {selection ? `${formatTime(selection.start)} - ${formatTime(selection.end)}` : 'No selection (transcription needed for selection)'}
+                    {selection ? `${formatTime(selection.start)} - ${formatTime(selection.end)}` : 'No selection yet'}
                 </p>
             </div>
             <div className="flex items-center gap-4">
@@ -223,13 +383,19 @@ export function Editor({ videoUrl, gcsVideoUri, transcript, hotspots, brandOptio
                 </div>
                 <Button
                   onClick={handleCreateClip}
-                  disabled={true}
+                  disabled={!selection || isClipping || !gcsVideoUri}
                   size="lg"
-                  title="Clipping feature is temporarily disabled"
                 >
-                  <Scissors className="mr-2 h-5 w-5"/>
-                  Create Clip (Disabled)
+                  {isClipping ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Scissors className="mr-2 h-5 w-5"/>}
+                  {isClipping ? clippingStatus || 'Clipping...' : 'Create Clip'}
                 </Button>
+                {finalClipUrl && !isClipping && (
+                  <Button asChild variant="outline" size="lg">
+                    <a href={finalClipUrl} download target="_blank" rel="noopener noreferrer">
+                      <Download className="mr-2 h-5 w-5" /> Download Clip
+                    </a>
+                  </Button>
+                )}
             </div>
           </CardContent>
         </Card>
