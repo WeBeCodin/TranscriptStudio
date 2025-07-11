@@ -6,33 +6,29 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { TranscriptViewer } from '@/components/transcript-viewer';
-import type { BrandOptions, Hotspot, Selection, Transcript, Word } from '@/lib/types'; // Removed ClippingJob, JobStatus as not directly used by UI here when disabled
+import type { BrandOptions, Hotspot, Selection, Transcript, Word } from '@/lib/types';
 import { formatTime, cn } from '@/lib/utils';
-import { Scissors, RectangleHorizontal, RectangleVertical, Square, Wand2, RefreshCw } from 'lucide-react'; // Removed Download icon as it's part of disabled logic
+import { Scissors, RectangleHorizontal, RectangleVertical, Square, Wand2, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-// Import generateVideoBackgroundAction and ActionResult. requestVideoClipAction is not called by active logic here.
-import { generateVideoBackgroundAction, ActionResult } from '@/app/actions'; 
+import { generateVideoBackgroundAction, ActionResult } from '@/app/actions';
 import { Slider } from '@/components/ui/slider';
-// Firebase storage imports for download URL are part of disabled clipping logic
-// import { getStorage, ref as storageRefGet, getDownloadURL } from 'firebase/storage'; 
-// Firestore imports for listener are part of disabled clipping logic
-// import { db } from '@/lib/firebase';
-// import { doc, onSnapshot } from 'firebase/firestore';
 
 interface EditorProps {
-  videoUrl: string | null; 
-  gcsVideoUri: string | null; 
+  videoUrl: string | null;
+  gcsVideoUri: string | null;
   transcript: Transcript | null;
   hotspots: Hotspot[] | null;
   brandOptions: BrandOptions;
 }
 
 export function Editor({ videoUrl, gcsVideoUri, transcript, hotspots, brandOptions }: EditorProps) {
+  console.log("[EDITOR.TSX] Props received:", { videoUrlGcs: gcsVideoUri, transcriptProp: transcript, hotspotsProp: hotspots, brandOptions });
+
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const [currentTime, setCurrentTime] = React.useState(0);
   const [selection, setSelection] = React.useState<Selection | null>(null);
   const [allWords, setAllWords] = React.useState<Word[]>([]);
-  
+
   const [aspectRatio, setAspectRatio] = React.useState<'original' | 'portrait' | 'square'>('original');
   const [zoom, setZoom] = React.useState(1);
   const [pan, setPan] = React.useState({ x: 0, y: 0 });
@@ -43,39 +39,23 @@ export function Editor({ videoUrl, gcsVideoUri, transcript, hotspots, brandOptio
   const [generativeBg, setGenerativeBg] = React.useState<string | null>(null);
   const [isGeneratingBg, setIsGeneratingBg] = React.useState(false);
 
-  // --- Clipping feature state and logic temporarily disabled ---
-  // const [isClipping, setIsClipping] = React.useState(false); 
-  // const [clippingStatus, setClippingStatus] = React.useState(''); 
-  // const [currentClippingJobId, setCurrentClippingJobId] = React.useState<string | null>(null); 
-  // const [finalClipUrl, setFinalClipUrl] = React.useState<string | null>(null); 
-  // ---
-
   const { toast } = useToast();
 
   React.useEffect(() => {
-    if (transcript && transcript.words) { 
+    console.log("[EDITOR.TSX] useEffect for transcript processing. Received transcript prop:", transcript);
+    if (transcript && transcript.words) {
       setAllWords(transcript.words);
+      console.log("[EDITOR.TSX] allWords state updated with", transcript.words.length, "words.");
     } else {
-      setAllWords([]); 
+      setAllWords([]);
+      console.log("[EDITOR.TSX] allWords state reset as transcript is null or has no words.");
     }
   }, [transcript]);
-  
+
   React.useEffect(() => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
   }, [aspectRatio]);
-
-  // --- Default selection useEffect - Temporarily Disabled ---
-  // React.useEffect(() => {
-  //   // ... default selection logic was here ...
-  // }, [gcsVideoUri, selection, transcript, videoUrl, toast]); 
-  // ---
-
-  // --- Firestore listener for clipping jobs - Temporarily DISABLED ---
-  // React.useEffect(() => {
-  //   // ... clipping job listener logic was here ...
-  // }, [currentClippingJobId, toast]);
-  // ---
 
   const handleTimeUpdate = () => {
     if (videoRef.current) {
@@ -88,40 +68,14 @@ export function Editor({ videoUrl, gcsVideoUri, transcript, hotspots, brandOptio
       videoRef.current.currentTime = time;
     }
   };
-  
-  // --- handleCreateClip function - Temporarily DISABLED ---
+
   const handleCreateClip = async () => {
     toast({
       title: "Clipping Feature Disabled",
       description: "The video clipping functionality is temporarily inactive.",
+      variant: "default"
     });
-    // Original logic commented out:
-    // if (!selection) { /* ... */ return; }
-    // if (!gcsVideoUri) { /* ... */ return; }
-    // if (isClipping) { /* ... */ return; }
-    // setIsClipping(true);
-    // setClippingStatus('Requesting video clip...');
-    // setFinalClipUrl(null);
-    // try {
-    //   const result = await requestVideoClipAction({ 
-    //     gcsUri: gcsVideoUri, 
-    //     startTime: selection.start, 
-    //     endTime: selection.end 
-    //   }) as ActionResult;
-    //   if (result.success && result.jobId) {
-    //     setCurrentClippingJobId(result.jobId);
-    //     toast({ title: "Clipping Job Started", description: `Job ID: ${result.jobId}` });
-    //   } else {
-    //     throw new Error(result.error || "Failed to start clipping job.");
-    //   }
-    // } catch (error: any) {
-    //   console.error("[EDITOR.TSX] Error calling requestVideoClipAction:", error);
-    //   toast({ variant: "destructive", title: "Clipping Request Failed", description: error.message });
-    //   setIsClipping(false);
-    //   setClippingStatus('Clipping request failed.');
-    // }
   };
-  // ---
 
   const handlePanMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (zoom <= 1 || aspectRatio === 'original') return;
@@ -158,10 +112,10 @@ export function Editor({ videoUrl, gcsVideoUri, transcript, hotspots, brandOptio
         const ctx = canvas.getContext('2d');
         if (!ctx) throw new Error('Could not get canvas context for background generation.');
         if (videoElement.duration && isFinite(videoElement.duration) && videoElement.duration > 0) videoElement.currentTime = videoElement.duration / 2;
-        else videoElement.currentTime = 0; 
-        await new Promise<void>((resolve, reject) => { 
+        else videoElement.currentTime = 0;
+        await new Promise<void>((resolve, reject) => {
             videoElement.onseeked = () => resolve();
-            const seekTimeout = setTimeout(() => { console.warn("[EDITOR.TSX] Seek timeout for BG gen."); resolve(); }, 1000);
+            const seekTimeout = setTimeout(() => { console.warn("[EDITOR.TSX] Seek timeout during background generation, attempting to draw anyway."); resolve(); }, 1000);
             videoElement.onerror = () => { clearTimeout(seekTimeout); reject(new Error("Video seek failed for background generation."));}
             if(videoElement.currentTime === videoElement.duration / 2 || (videoElement.currentTime === 0 && videoElement.duration === 0)) { clearTimeout(seekTimeout); resolve(); }
         });
@@ -186,10 +140,10 @@ export function Editor({ videoUrl, gcsVideoUri, transcript, hotspots, brandOptio
   const selectionDuration = selection ? selection.end - selection.start : 0;
 
   return (
+    // JSX structure remains the same as your last correct version
     <div className="w-full max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
       <div className="lg:col-span-2 flex flex-col gap-4 h-full">
         <div className="flex-grow flex flex-col gap-4">
-            {/* Aspect Ratio, Fill, Zoom controls */}
             <div className="flex flex-col sm:flex-row justify-center items-center gap-4 sm:gap-6 mb-2">
                 <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground font-medium">Aspect:</span>
@@ -222,7 +176,6 @@ export function Editor({ videoUrl, gcsVideoUri, transcript, hotspots, brandOptio
                 </div>
             )}
 
-            {/* Video Player Card */}
             <Card className="flex-grow overflow-hidden shadow-lg flex items-center justify-center bg-black/90"
               onMouseMove={handlePanMouseMove} onMouseUp={handlePanMouseUp} onMouseLeave={handlePanMouseUp}
             >
@@ -245,7 +198,7 @@ export function Editor({ videoUrl, gcsVideoUri, transcript, hotspots, brandOptio
                       <div className="w-full h-full transition-transform duration-100 ease-linear" style={{ transform: `scale(${zoom}) translate(${pan.x}px, ${pan.y}px)` }}>
                           {videoUrl && (
                             <video key={`main-${videoUrl}`} ref={videoRef} src={videoUrl} className="w-full h-full object-contain"
-                                onTimeUpdate={handleTimeUpdate} onClick={() => videoRef.current?.paused ? videoRef.current?.play() : videoRef.current?.pause()} playsInline controls 
+                                onTimeUpdate={handleTimeUpdate} onClick={() => videoRef.current?.paused ? videoRef.current?.play() : videoRef.current?.pause()} playsInline controls
                             />
                           )}
                       </div>
@@ -255,7 +208,6 @@ export function Editor({ videoUrl, gcsVideoUri, transcript, hotspots, brandOptio
             </Card>
         </div>
 
-        {/* Clip Controls Card - Temporarily Disabled */}
         <Card className="shadow-lg mt-4">
           <CardContent className="p-4 flex items-center justify-between">
             <div className="text-sm">
@@ -269,32 +221,30 @@ export function Editor({ videoUrl, gcsVideoUri, transcript, hotspots, brandOptio
                     <p className="font-semibold font-headline">Duration</p>
                     <p className="font-mono text-lg font-medium">{formatTime(selectionDuration)}</p>
                 </div>
-                <Button 
-                  onClick={handleCreateClip} 
-                  disabled={true} // Always disabled for now
+                <Button
+                  onClick={handleCreateClip}
+                  disabled={true}
                   size="lg"
                   title="Clipping feature is temporarily disabled"
                 >
                   <Scissors className="mr-2 h-5 w-5"/>
                   Create Clip (Disabled)
                 </Button>
-                {/* Download button logic also effectively disabled */}
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Transcript Viewer */}
       <div className="lg:col-span-1 h-full">
         <Card className="shadow-lg h-full max-h-[calc(100vh-12rem)]">
           <CardContent className="p-0 h-full">
             <TranscriptViewer
-              words={allWords} 
+              words={allWords}
               hotspots={hotspots}
               currentTime={currentTime}
               onSeek={handleSeek}
               selection={selection}
-              onSelectionChange={setSelection} 
+              onSelectionChange={setSelection}
               brandOptions={brandOptions}
             />
           </CardContent>

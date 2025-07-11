@@ -4,7 +4,7 @@ import * as React from 'react';
 import type { Word, Hotspot, Selection, BrandOptions } from '@/lib/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
-import { Sparkles, Bot } from 'lucide-react';
+import { Sparkles } from 'lucide-react'; 
 import {
     Tooltip,
     TooltipContent,
@@ -31,98 +31,109 @@ export function TranscriptViewer({
   onSelectionChange,
   brandOptions,
 }: TranscriptViewerProps) {
+  console.log("[TRANSCRIPT_VIEWER.TSX] Props received:", { numWords: words?.length, hotspots, currentTime, selection });
+
   const wordRefs = React.useRef<(HTMLSpanElement | null)[]>([]);
   const isSelecting = React.useRef(false);
   const [startWordIndex, setStartWordIndex] = React.useState<number | null>(null);
 
   React.useEffect(() => {
-    wordRefs.current = wordRefs.current.slice(0, words.length);
+    console.log("[TRANSCRIPT_VIEWER.TSX] useEffect processing words. Count:", words?.length);
+    wordRefs.current = wordRefs.current.slice(0, words?.length || 0);
   }, [words]);
-
-  const getWordAtCharIndex = (charIndex: number): number => {
-    let cumulativeLength = 0;
-    for (let i = 0; i < words.length; i++) {
-        cumulativeLength += words[i].text.length + 1; // +1 for space
-        if(charIndex < cumulativeLength) return i;
-    }
-    return words.length - 1;
-  }
   
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
-    if (target.tagName === 'SPAN' && target.dataset.wordIndex) {
+    if (target.tagName === 'SPAN' && target.dataset.wordIndex !== undefined) {
         isSelecting.current = true;
         const index = parseInt(target.dataset.wordIndex, 10);
         setStartWordIndex(index);
-        onSelectionChange({ start: words[index].start, end: words[index].end });
+        if (words && words[index]) {
+            onSelectionChange({ start: words[index].start, end: words[index].end });
+            console.log("[TRANSCRIPT_VIEWER.TSX] MouseDown: Started selection at word", index, "Time:", words[index].start);
+        } else {
+            console.warn("[TRANSCRIPT_VIEWER.TSX] MouseDown: Word data not found for index", index);
+        }
     }
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isSelecting.current || startWordIndex === null) return;
-    
+    if (!isSelecting.current || startWordIndex === null || !words || words.length === 0) return;
     const target = e.target as HTMLElement;
-    if (target.tagName === 'SPAN' && target.dataset.wordIndex) {
+    if (target.tagName === 'SPAN' && target.dataset.wordIndex !== undefined) {
         const currentIndex = parseInt(target.dataset.wordIndex, 10);
-        const startIndex = Math.min(startWordIndex, currentIndex);
-        const endIndex = Math.max(startWordIndex, currentIndex);
-        
-        onSelectionChange({
-            start: words[startIndex].start,
-            end: words[endIndex].end,
-        });
+        if (words[startWordIndex] && words[currentIndex]) {
+            const selectionStartIndex = Math.min(startWordIndex, currentIndex);
+            const selectionEndIndex = Math.max(startWordIndex, currentIndex);
+            onSelectionChange({
+                start: words[selectionStartIndex].start,
+                end: words[selectionEndIndex].end,
+            });
+        }
     }
   };
 
   const handleMouseUp = () => {
-    isSelecting.current = false;
-    setStartWordIndex(null);
+    if (isSelecting.current) {
+        console.log("[TRANSCRIPT_VIEWER.TSX] MouseUp: Finalized selection.", selection);
+        isSelecting.current = false;
+    }
   };
   
-  const fullTranscriptText = React.useMemo(() => words.map(w => w.text).join(' '), [words]);
-  
-  const isWordInHotspot = (index: number): boolean => {
-    if (!hotspots) return false;
-    let charIndex = words.slice(0, index).reduce((acc, word) => acc + word.text.length + 1, 0);
-    return hotspots.some(h => charIndex >= h.startIndex && charIndex <= h.endIndex);
+  const isWordInHotspot = (wordIndex: number): boolean => {
+    if (!hotspots || !words || !words[wordIndex]) return false;
+    let charIndex = 0;
+    for(let i=0; i < wordIndex; i++) {
+        if(words[i]) charIndex += (words[i].text.length + 1); 
+    }
+    return hotspots.some(h => charIndex >= h.startIndex && charIndex < (h.endIndex + words[wordIndex].text.length) );
   };
 
   const isWordSelected = (word: Word): boolean => {
     if (!selection) return false;
-    // Check if word's time range overlaps with selection time range
     return word.start < selection.end && word.end > selection.start;
   };
 
   return (
-    <ScrollArea className="h-full w-full">
+    <ScrollArea 
+        className="h-full w-full" 
+        onMouseUp={handleMouseUp} 
+        onMouseLeave={handleMouseUp} 
+    >
         <div 
-            className="p-6 text-lg leading-relaxed select-none"
+            className="p-6 text-lg leading-relaxed select-text"
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
             style={{
                 fontFamily: brandOptions.font === 'Space Grotesk' ? '"Space Grotesk", sans-serif' : 'Inter, sans-serif'
             }}
         >
         <p>
-            {words.map((word, index) => {
+            {(words && words.length > 0) ? words.map((word, index) => {
             const isActive = currentTime >= word.start && currentTime < word.end;
             const isSelected = isWordSelected(word);
-            const inHotspot = isWordInHotspot(index);
+            const inHotspot = false; // Temporarily disable hotspot visual for simplicity
+
             return (
                 <span
-                key={index}
+                key={`${index}-${word.start}-${word.text.substring(0,5)}`}
                 ref={el => wordRefs.current[index] = el}
                 data-word-index={index}
-                onClick={() => onSeek(word.start)}
+                onClick={(e) => { 
+                    e.stopPropagation(); 
+                    onSeek(word.start);
+                    console.log("[TRANSCRIPT_VIEWER.TSX] Word clicked, seeking to:", word.start);
+                }}
                 className={cn(
-                    "cursor-pointer transition-colors duration-100 rounded-md",
-                    isSelected ? "bg-primary/30" : "hover:bg-primary/10",
-                    isActive && "text-white",
+                    "cursor-pointer transition-colors duration-100 rounded-md px-0.5 py-0.5",
+                    isSelected ? "bg-opacity-30" : "hover:bg-opacity-10",
+                    isActive && "text-opacity-100",
                     inHotspot && !isSelected && "bg-accent/20"
                 )}
                 style={{
-                    backgroundColor: isSelected ? brandOptions.primaryColor + '4D' : (inHotspot ? 'hsl(var(--accent) / 0.2)' : 'transparent'),
+                    backgroundColor: isSelected 
+                        ? `${brandOptions.primaryColor}4D` 
+                        : (inHotspot ? 'hsl(var(--accent))' : 'transparent'),
                     color: isActive ? brandOptions.primaryColor : 'inherit',
                     fontWeight: isActive ? 'bold' : 'normal'
                 }}
@@ -130,24 +141,28 @@ export function TranscriptViewer({
                 {word.text}{' '}
                 </span>
             );
-            })}
+            }) : (
+                <span className="text-muted-foreground italic">No transcript data available.</span>
+            )}
         </p>
         </div>
-        <TooltipProvider>
-            <div className="p-4 flex justify-end">
-                <Tooltip>
-                <TooltipTrigger asChild>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Sparkles className="h-4 w-4 text-accent" />
-                        <span>AI Hotspots Enabled</span>
-                    </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                    <p>AI has highlighted sections that might be interesting.</p>
-                </TooltipContent>
-                </Tooltip>
-            </div>
-        </TooltipProvider>
+        {hotspots && hotspots.length > 0 && (
+            <TooltipProvider>
+                <div className="p-4 flex justify-end">
+                    <Tooltip>
+                    <TooltipTrigger asChild>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Sparkles className="h-4 w-4 text-accent" />
+                            <span>AI Hotspots Analyzed</span>
+                        </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                        <p>AI has identified sections that might be interesting for clips.</p>
+                    </TooltipContent>
+                    </Tooltip>
+                </div>
+            </TooltipProvider>
+        )}
     </ScrollArea>
   );
 }
