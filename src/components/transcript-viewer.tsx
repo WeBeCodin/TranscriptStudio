@@ -4,7 +4,7 @@ import * as React from 'react';
 import type { Word, Hotspot, Selection, BrandOptions } from '@/lib/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
-import { Sparkles } from 'lucide-react'; 
+import { Sparkles } from 'lucide-react';
 import {
     Tooltip,
     TooltipContent,
@@ -41,7 +41,7 @@ export function TranscriptViewer({
     console.log("[TRANSCRIPT_VIEWER.TSX] useEffect processing words. Count:", words?.length);
     wordRefs.current = wordRefs.current.slice(0, words?.length || 0);
   }, [words]);
-  
+
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     if (target.tagName === 'SPAN' && target.dataset.wordIndex !== undefined) {
@@ -79,12 +79,12 @@ export function TranscriptViewer({
         isSelecting.current = false;
     }
   };
-  
+
   const isWordInHotspot = (wordIndex: number): boolean => {
     if (!hotspots || !words || !words[wordIndex]) return false;
     let charIndex = 0;
     for(let i=0; i < wordIndex; i++) {
-        if(words[i]) charIndex += (words[i].text.length + 1); 
+        if(words[i]) charIndex += (words[i].text.length + 1);
     }
     return hotspots.some(h => charIndex >= h.startIndex && charIndex < (h.endIndex + words[wordIndex].text.length) );
   };
@@ -95,12 +95,12 @@ export function TranscriptViewer({
   };
 
   return (
-    <ScrollArea 
-        className="h-full w-full" 
-        onMouseUp={handleMouseUp} 
-        onMouseLeave={handleMouseUp} 
+    <ScrollArea
+        className="h-full w-full"
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
     >
-        <div 
+        <div
             className="p-6 text-lg leading-relaxed select-text"
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
@@ -112,15 +112,15 @@ export function TranscriptViewer({
             {(words && words.length > 0) ? words.map((word, index) => {
             const isActive = currentTime >= word.start && currentTime < word.end;
             const isSelected = isWordSelected(word);
-            const inHotspot = false; // Temporarily disable hotspot visual for simplicity
+            const inHotspot = false;
 
             return (
                 <span
                 key={`${index}-${word.start}-${word.text.substring(0,5)}`}
-                ref={el => wordRefs.current[index] = el}
+                ref={(el: HTMLSpanElement | null) => { wordRefs.current[index] = el; }} // Corrected ref callback
                 data-word-index={index}
-                onClick={(e) => { 
-                    e.stopPropagation(); 
+                onClick={(e) => {
+                    e.stopPropagation();
                     onSeek(word.start);
                     console.log("[TRANSCRIPT_VIEWER.TSX] Word clicked, seeking to:", word.start);
                 }}
@@ -131,8 +131,8 @@ export function TranscriptViewer({
                     inHotspot && !isSelected && "bg-accent/20"
                 )}
                 style={{
-                    backgroundColor: isSelected 
-                        ? `${brandOptions.primaryColor}4D` 
+                    backgroundColor: isSelected
+                        ? `${brandOptions.primaryColor}4D`
                         : (inHotspot ? 'hsl(var(--accent))' : 'transparent'),
                     color: isActive ? brandOptions.primaryColor : 'inherit',
                     fontWeight: isActive ? 'bold' : 'normal'

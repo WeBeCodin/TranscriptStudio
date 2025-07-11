@@ -22,6 +22,7 @@ export interface Transcript {
 }
 
 // --- Hotspot Structure ---
+// Assuming SuggestHotspotsOutput from your Genkit flow is an array of objects directly:
 export type Hotspot = OriginalSuggestHotspotsOutput[0]; 
 
 // --- UI and Editor Specific Types ---
@@ -47,6 +48,8 @@ export interface TranscriptionJob {
   updatedAt: any; 
   transcript?: Transcript; 
   error?: string; 
+  workerStartedAt?: any; 
+  workerCompletedAt?: any; 
 }
 
 export interface ClippingJob {
@@ -61,4 +64,6 @@ export interface ClippingJob {
   updatedAt: any; 
   clippedVideoGcsUri?: string; 
   error?: string; 
+  workerStartedAt?: any; 
+  workerCompletedAt?: any; 
 }

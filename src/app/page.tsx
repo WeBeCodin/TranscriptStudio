@@ -39,100 +39,103 @@ export default function Home() {
 
   React.useEffect(() => {
     let unsubscribeFromTranscriptionJob: (() => void) | undefined = undefined;
-    if (!currentTranscriptionJobId) {
-      if (transcript || hotspots) {
-        setTranscript(null);
-        setHotspots(null);
-      }
-      if (!processingStatus.startsWith("Uploading")) {
-         setIsProcessing(false);
-      }
-      return;
-    }
 
-    console.log("[PAGE.TSX] useEffect listener attached for currentTranscriptionJobId:", currentTranscriptionJobId);
-    setIsProcessing(true); 
-    setProcessingStatus('Transcription job active. Waiting for updates...');
-    
-    unsubscribeFromTranscriptionJob = onSnapshot(doc(db, "transcriptionJobs", currentTranscriptionJobId), async (jobDoc) => {
-      console.log("[PAGE.TSX] Firestore onSnapshot callback for JobId:", currentTranscriptionJobId, "Exists:", jobDoc.exists());
-      if (jobDoc.exists()) {
-        const jobData = jobDoc.data() as Omit<TranscriptionJob, 'id' | 'createdAt' | 'updatedAt'> & { createdAt: Timestamp, updatedAt: Timestamp };
-        const currentStatusDisplay = `Job status: ${jobData.status?.toLowerCase() || 'unknown'}...`;
-        setProcessingStatus(currentStatusDisplay);
+    if (currentTranscriptionJobId) {
+      console.log("[PAGE.TSX] useEffect: ATTACHING Firestore listener for currentTranscriptionJobId:", currentTranscriptionJobId);
+      setIsProcessing(true); 
+      setProcessingStatus('Transcription job active. Waiting for updates...');
+      
+      unsubscribeFromTranscriptionJob = onSnapshot(doc(db, "transcriptionJobs", currentTranscriptionJobId), async (jobDoc) => {
+        console.log("[PAGE.TSX] Firestore onSnapshot callback. JobId:", currentTranscriptionJobId, "Exists:", jobDoc.exists());
+        if (jobDoc.exists()) {
+          const jobData = jobDoc.data() as Omit<TranscriptionJob, 'id' | 'createdAt' | 'updatedAt'> & { createdAt: Timestamp, updatedAt: Timestamp };
+          const currentStatusDisplay = `Job status: ${jobData.status?.toLowerCase() || 'unknown'}...`;
+          setProcessingStatus(currentStatusDisplay);
 
-        switch (jobData.status) {
-          case 'PROCESSING':
-            setProcessingStatus('AI is processing video for transcription...');
-            break;
-          case 'COMPLETED':
-            if (jobData.transcript) {
-              setTranscript(jobData.transcript);
-              toast({ title: "Transcript Generated", description: "The transcript is ready." });
-              setProcessingStatus('Analyzing for hotspots...');
-              const fullTranscriptText = jobData.transcript.words.map(w => w.text).join(' ');
-              try {
-                const hotspotsResult = await suggestHotspotsAction({ transcript: fullTranscriptText }) as ActionResult<SuggestHotspotsOutput>;
-                if (hotspotsResult.success && hotspotsResult.data) {
-                  setHotspots(hotspotsResult.data);
-                  if (hotspotsResult.data.length > 0) toast({ title: "Hotspots Suggested" });
-                } else {
-                  console.warn('Hotspot generation failed or no hotspots found:', hotspotsResult.error, hotspotsResult.debugMessage);
-                  toast({ variant: "destructive", title: "Hotspot Suggestion", description: hotspotsResult.error || "No hotspots suggested or an error occurred."});
+          switch (jobData.status) {
+            case 'PROCESSING':
+              if(!isProcessing) setIsProcessing(true); 
+              setProcessingStatus('AI is processing video for transcription...');
+              break;
+            case 'COMPLETED':
+              console.log(`[PAGE.TSX] Job ${currentTranscriptionJobId} COMPLETED. Transcript data:`, jobData.transcript);
+              if (jobData.transcript) {
+                setTranscript(jobData.transcript);
+                toast({ title: "Transcript Generated", description: "The transcript is ready." });
+                
+                setProcessingStatus('Analyzing for hotspots...');
+                const fullTranscriptText = jobData.transcript.words.map(w => w.text).join(' ');
+                try {
+                  const hotspotsResult = await suggestHotspotsAction({ transcript: fullTranscriptText }) as ActionResult<SuggestHotspotsOutput>;
+                  console.log(`[PAGE.TSX] Hotspots result for job ${currentTranscriptionJobId}:`, hotspotsResult);
+                  if (hotspotsResult.success && hotspotsResult.data) {
+                    setHotspots(hotspotsResult.data);
+                    if (hotspotsResult.data.length > 0) toast({ title: "Hotspots Suggested" });
+                    else toast({title: "Hotspots", description: "No specific hotspots suggested by AI."});
+                  } else {
+                    console.warn('Hotspot generation failed or no hotspots found:', hotspotsResult.error, hotspotsResult.debugMessage);
+                    toast({ variant: "destructive", title: "Hotspot Suggestion", description: hotspotsResult.error || "No hotspots suggested or an error occurred."});
+                    setHotspots([]); 
+                  }
+                } catch (e:any) { 
+                  console.error('suggestHotspotsAction threw an error:',e); 
+                  toast({variant:"destructive", title:"Hotspot Call Error", description:e.message}); 
                   setHotspots([]);
                 }
-              } catch (e:any) { 
-                console.error('suggestHotspotsAction threw an error:',e); 
-                toast({variant:"destructive", title:"Hotspot Call Error", description:e.message}); 
-                setHotspots([]);
+                setProcessingStatus('All processing complete!');
+              } else {
+                toast({ variant: "destructive", title: "Error", description: "Transcript missing for completed job." });
+                setProcessingStatus('Error: Transcript data missing on completed job.');
               }
-              setProcessingStatus('All processing complete!');
-            }
-             setIsProcessing(false); 
-            setCurrentTranscriptionJobId(null); 
-            if (typeof unsubscribeFromTranscriptionJob === 'function') unsubscribeFromTranscriptionJob();
-            break;
-          case 'FAILED':
-            console.error('Transcription job failed in Firestore:', jobData.error);
-            toast({
-              variant: "destructive",
-              title: "Transcription Failed",
-              description: jobData.error || "The AI failed to transcribe the video.",
-            });
-            setIsProcessing(false);
-            setProcessingStatus(`Transcription failed: ${jobData.error || "Unknown error"}`);
-            setCurrentTranscriptionJobId(null); 
-            if (typeof unsubscribeFromTranscriptionJob === 'function') unsubscribeFromTranscriptionJob();
-            break;
-          case 'PENDING':
-            setProcessingStatus('Transcription job is pending...');
-            break;
-          default:
-            setProcessingStatus(`Job status: ${jobData.status || 'unknown'}`);
-            break;
+              setIsProcessing(false); 
+              setCurrentTranscriptionJobId(null); 
+              break;
+            case 'FAILED':
+              console.error(`[PAGE.TSX] Job ${currentTranscriptionJobId} FAILED. Error:`, jobData.error);
+              toast({
+                variant: "destructive",
+                title: "Transcription Failed",
+                description: jobData.error || "The AI failed to transcribe the video.",
+              });
+              setIsProcessing(false);
+              setProcessingStatus(`Transcription failed: ${jobData.error || "Unknown error"}`);
+              setCurrentTranscriptionJobId(null); 
+              break;
+            case 'PENDING':
+              if(!isProcessing) setIsProcessing(true);
+              setProcessingStatus('Transcription job is pending...');
+              break;
+            default:
+              setProcessingStatus(`Job status: ${jobData.status || 'unknown'}`);
+              break;
+          }
+        } else {
+          console.warn("[PAGE.TSX] Transcription job document not found for ID:", currentTranscriptionJobId, "while listener was active.");
+          toast({variant:"destructive", title:"Error", description:"Transcription job tracking lost (document disappeared)."});
+          setIsProcessing(false); 
+          setProcessingStatus('Error: Job details disappeared.');
+          setCurrentTranscriptionJobId(null); 
         }
-      } else {
-        console.warn("Transcription job document not found for ID:", currentTranscriptionJobId);
-        toast({variant:"destructive", title:"Error", description:"Transcription job tracking lost."});
-        setIsProcessing(false); 
-        setProcessingStatus('Error: Job details not found.');
-        setCurrentTranscriptionJobId(null);
-        if (typeof unsubscribeFromTranscriptionJob === 'function') unsubscribeFromTranscriptionJob();
-      }
-    }, (error) => {
-      console.error("Error listening to transcription job updates:", error);
-      toast({ variant: "destructive", title: "Connection Error", description: "Could not listen for transcription updates."});
-      setIsProcessing(false);
-      setProcessingStatus('Error listening for transcription updates.');
-      setCurrentTranscriptionJobId(null); 
-    });
+      }, (error) => {
+        console.error("[PAGE.TSX] Error listening to transcription job updates for ID:", currentTranscriptionJobId, error);
+        toast({ variant: "destructive", title: "Connection Error", description: "Could not listen for transcription updates."});
+        setIsProcessing(false);
+        setProcessingStatus('Error listening for transcription updates.');
+        setCurrentTranscriptionJobId(null); 
+      });
 
-    return () => {
-      if (typeof unsubscribeFromTranscriptionJob === 'function') {
-        console.log("[PAGE.TSX] Unsubscribing Firestore listener for:", currentTranscriptionJobId);
-        unsubscribeFromTranscriptionJob();
+      return () => {
+        if (typeof unsubscribeFromTranscriptionJob === 'function') {
+          console.log("[PAGE.TSX] useEffect: CLEANUP Unsubscribing Firestore listener for:", currentTranscriptionJobId);
+          unsubscribeFromTranscriptionJob();
+        }
+      };
+    } else {
+      if (isProcessing && !processingStatus.startsWith("Uploading")) {
+        console.log("[PAGE.TSX] useEffect: No currentTranscriptionJobId, ensuring isProcessing is false (unless uploading).");
+        setIsProcessing(false);
       }
-    };
+    }
   }, [currentTranscriptionJobId, toast]);
 
   const resetState = (keepVideo: boolean = false) => {
@@ -150,7 +153,7 @@ export default function Home() {
     if (currentTranscriptionJobId) { 
         console.log("[PAGE.TSX] Clearing currentTranscriptionJobId in resetState. Was:", currentTranscriptionJobId);
     }
-    setCurrentTranscriptionJobId(null);
+    setCurrentTranscriptionJobId(null); 
   };
 
   const handleFileUpload = async (file: File) => {
@@ -211,7 +214,7 @@ export default function Home() {
         title: "Upload Failed",
         description: error.message || "An unknown error occurred during video upload.",
       });
-      resetState();
+      resetState(); 
     }
   };
 
@@ -260,7 +263,7 @@ export default function Home() {
   const showEditorComponent = videoUrl && gcsUploadPath;
   const showTranscribeButton = showEditorComponent && !transcript && !currentTranscriptionJobId && !isProcessing;
   const showUploaderComponent = !showEditorComponent;
-  const showProcessingSpinner = isProcessing && !processingStatus.startsWith("Uploading");
+  const showProcessingSpinner = isProcessing && !processingStatus.startsWith("Uploading to GCS...");
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
@@ -284,7 +287,7 @@ export default function Home() {
         ) : (
           <VideoUploader 
             onFileUpload={handleFileUpload} 
-            isProcessing={isProcessing && processingStatus.startsWith("Uploading")} 
+            isProcessing={isProcessing && processingStatus.startsWith("Uploading to GCS...")} 
             status={processingStatus} 
             progress={uploadProgress} 
           />
