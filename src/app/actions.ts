@@ -9,14 +9,16 @@ import { collection, doc, setDoc, serverTimestamp, getDoc } from 'firebase/fires
 import type { TranscriptionJob, ClippingJob, JobStatus, Transcript } from '@/lib/types'; 
 import { v4 as uuidv4 } from 'uuid';
 
+// Consistent return type for all actions
 export type ActionResult<TData = null> = {
   success: boolean;
   data?: TData;
   jobId?: string;
   error?: string; 
-  debugMessage?: string;
+  debugMessage?: string; 
 };
 
+// This original GCS-based transcription action might be deprecated or used as a fallback.
 export async function generateTranscriptFromGcsAction(input: GenerateTranscriptInput): Promise<ActionResult<GenerateTranscriptOutput>> {
   console.log('[ACTIONS.TS] generateTranscriptFromGcsAction (Genkit Flow) called. Input:', input);
   try {
@@ -70,8 +72,7 @@ export async function requestTranscriptionAction(input: RequestTranscriptionInpu
 
   try {
     const jobRef = doc(db, "transcriptionJobs", jobId);
-    // Ensure Omit<> correctly lists all optional fields not set here
-    const newJobData: Omit<TranscriptionJob, 'id' | 'transcript' | 'error' | 'startedAt' | 'completedAt'> & { createdAt: any; updatedAt: any } = {
+    const newJobData: Omit<TranscriptionJob, 'id' | 'transcript' | 'error' | 'workerStartedAt' | 'workerCompletedAt'> & { createdAt: any; updatedAt: any } = {
       gcsUri,
       status: 'PENDING' as JobStatus,
       createdAt: serverTimestamp(),
@@ -137,9 +138,8 @@ export async function getTranscriptionJobAction(jobId: string): Promise<ActionRe
       error: jobDataFromDb.error as string | undefined, 
       createdAt: jobDataFromDb.createdAt, 
       updatedAt: jobDataFromDb.updatedAt, 
-      // Correctly assign optional fields if they exist on jobDataFromDb
-      ...(jobDataFromDb.startedAt && { startedAt: jobDataFromDb.startedAt }),
-      ...(jobDataFromDb.completedAt && { completedAt: jobDataFromDb.completedAt }),
+      workerStartedAt: jobDataFromDb.workerStartedAt, 
+      workerCompletedAt: jobDataFromDb.workerCompletedAt,
     };
     return { success: true, data: typedJob, debugMessage: `[ACTIONS.TS] getTranscriptionJobAction: Job ${jobId} successfully fetched.` };
   } catch (error: any) {
@@ -152,7 +152,6 @@ export async function getTranscriptionJobAction(jobId: string): Promise<ActionRe
   }
 }
 
-// ... (rest of the actions like suggestHotspotsAction, generateVideoBackgroundAction, requestVideoClipAction remain the same as message #54)
 export async function suggestHotspotsAction(input: SuggestHotspotsInput): Promise<ActionResult<SuggestHotspotsOutput>> { 
   console.log('[ACTIONS.TS] suggestHotspotsAction called. Input transcript length:', input.transcript?.length);
   try {
@@ -251,8 +250,7 @@ export async function requestVideoClipAction(
 
   try {
     const jobRef = doc(db, "clippingJobs", jobId);
-    // Corrected Omit for ClippingJob
-    const newClipJobData: Omit<ClippingJob, 'id' | 'clippedVideoGcsUri' | 'error' | 'userId' | 'startedAt' | 'completedAt'> & { createdAt: any; updatedAt: any } = {
+    const newClipJobData: Omit<ClippingJob, 'id' | 'clippedVideoGcsUri' | 'error' | 'userId' | 'workerStartedAt' | 'workerCompletedAt'> & { createdAt: any; updatedAt: any } = {
       sourceVideoGcsUri: gcsUri,
       startTime,
       endTime,

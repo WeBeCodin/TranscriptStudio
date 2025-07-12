@@ -34,7 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.videoClipperWorker = void 0;
-console.log('[GCF_CLIPPER_LOG] START: Loading clipping-worker/index.ts');
+console.log('[GCF_CLIPPER_LOG] START: Loading clipping-worker/index.ts (v4 - FFmpeg -ss -t fix)');
 const admin = __importStar(require("firebase-admin"));
 const child_process_1 = require("child_process");
 const util_1 = require("util");
@@ -44,11 +44,13 @@ const os_1 = require("os");
 console.log('[GCF_CLIPPER_LOG] STEP 1: Basic imports successful.');
 let db;
 let defaultStorageBucket;
-const YOUR_BUCKET_NAME = 'transcript-studio-4drhv.appspot.com'; // YOUR ACTUAL BUCKET NAME HERE
+const TARGET_BUCKET_NAME = 'transcript-studio-4drhv.appspot.com';
 try {
     if (admin.apps.length === 0) {
-        console.log('[GCF_CLIPPER_LOG] STEP 2: Initializing Firebase Admin SDK...');
-        admin.initializeApp(); // No need to pass storageBucket here if using explicit bucket name below
+        console.log(`[GCF_CLIPPER_LOG] STEP 2: Initializing Firebase Admin SDK with explicit bucket: ${TARGET_BUCKET_NAME}...`);
+        admin.initializeApp({
+            storageBucket: TARGET_BUCKET_NAME,
+        });
         console.log('[GCF_CLIPPER_LOG] STEP 3: Firebase Admin SDK initialized successfully.');
     }
     else {
@@ -56,7 +58,7 @@ try {
     }
     db = admin.firestore();
     console.log('[GCF_CLIPPER_LOG] STEP 4: Firestore instance obtained.');
-    defaultStorageBucket = admin.storage().bucket(YOUR_BUCKET_NAME);
+    defaultStorageBucket = admin.storage().bucket(TARGET_BUCKET_NAME);
     console.log(`[GCF_CLIPPER_LOG] STEP 5: Storage bucket instance obtained for '${defaultStorageBucket.name}'.`);
 }
 catch (e) {
@@ -109,19 +111,21 @@ const videoClipperWorker = async (req, res) => {
         console.log(`[${jobId}] Created temp directory: ${tempLocalDir}`);
         const gcsUriMatch = gcsUri.match(/^gs:\/\/([^\/]+)\/(.+)$/);
         if (!gcsUriMatch) {
-            throw new Error(`Invalid GCS URI format: ${gcsUri}`);
+            throw new Error(`Invalid GCS URI format: ${gcsUri}. Expected gs://BUCKET_NAME/FILE_PATH`);
         }
-        const sourceBucketNameAsProvided = gcsUriMatch[1];
         const gcsFilePath = gcsUriMatch[2];
-        const sourceBucket = admin.storage().bucket(sourceBucketNameAsProvided);
         const inputFileName = path.basename(gcsFilePath);
         localInputPath = path.join(tempLocalDir, inputFileName);
-        console.log(`[${jobId}] Downloading ${gcsUri} from bucket ${sourceBucket.name} to ${localInputPath}...`);
-        await sourceBucket.file(gcsFilePath).download({ destination: localInputPath });
+        console.log(`[${jobId}] Downloading (file path: ${gcsFilePath}) from bucket ${defaultStorageBucket.name} to ${localInputPath}...`);
+        await defaultStorageBucket.file(gcsFilePath).download({ destination: localInputPath });
         console.log(`[${jobId}] Downloaded ${inputFileName} successfully.`);
         const outputClipFileName = `clip_${path.parse(inputFileName).name}.${outputFormat}`;
         localOutputPath = path.join(tempLocalDir, outputClipFileName);
-        const ffmpegCommand = `ffmpeg -y -hide_banner -i "${localInputPath}" -ss ${startTime} -to ${endTime} -c copy "${localOutputPath}"`;
+        const duration = endTime - startTime;
+        if (duration <= 0) {
+            throw new Error(`Invalid duration calculated: ${duration}. endTime (${endTime}) must be greater than startTime (${startTime}).`);
+        }
+        const ffmpegCommand = `ffmpeg -y -hide_banner -i "${localInputPath}" -ss ${startTime} -t ${duration} "${localOutputPath}"`;
         console.log(`[${jobId}] Executing FFmpeg: ${ffmpegCommand}`);
         const execTimeout = 480000;
         const { stdout, stderr } = await Promise.race([
@@ -138,7 +142,7 @@ const videoClipperWorker = async (req, res) => {
             }
         }
         catch (e) {
-            console.error(`[${jobId}] FFmpeg output file validation failed. Error: ${e.message}. Stderr for FFmpeg: ${stderr}`);
+            console.error(`[${jobId}] FFmpeg output file validation failed (fs.stat error or empty file). Error: ${e.message}. Stderr for FFmpeg: ${stderr}`);
             throw new Error(`FFmpeg output file validation failed: ${e.message} (Stderr for FFmpeg: ${stderr})`);
         }
         console.log(`[${jobId}] FFmpeg processed ${outputClipFileName} successfully.`);
@@ -183,4 +187,4 @@ const videoClipperWorker = async (req, res) => {
     }
 };
 exports.videoClipperWorker = videoClipperWorker;
-console.log('[GCF_CLIPPER_LOG] END: videoClipperWorker function defined and exported. Script load complete.');
+console.log('[GCF_CLIPPER_LOG] END: videoClipperWorker function defined and exported. Script load complete. (v4 - FFmpeg -ss -t fix)');
