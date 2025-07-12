@@ -2,7 +2,7 @@ console.log('[GCF_CLIPPER_LOG] START: Loading clipping-worker/index.ts (v6 - Dyn
 
 import type { Request, Response } from 'express';
 import * as admin from 'firebase-admin';
-import { Bucket } from '@google-cloud/storage';
+import { Bucket, GetSignedUrlConfig } from '@google-cloud/storage';
 
 import { exec } from 'child_process';
 import { promisify } from 'util';
