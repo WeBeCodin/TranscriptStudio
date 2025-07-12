@@ -86,6 +86,8 @@ export function TranscriptViewer({
     for(let i=0; i < wordIndex; i++) {
         if(words[i]) charIndex += (words[i].text.length + 1);
     }
+    // This logic assumes hotspots are character index based. It might need adjustment
+    // depending on the precise output of your suggestHotspotsAction Genkit flow.
     return hotspots.some(h => charIndex >= h.startIndex && charIndex < (h.endIndex + words[wordIndex].text.length) );
   };
 
@@ -112,7 +114,7 @@ export function TranscriptViewer({
             {(words && words.length > 0) ? words.map((word, index) => {
             const isActive = currentTime >= word.start && currentTime < word.end;
             const isSelected = isWordSelected(word);
-            const inHotspot = false;
+            const inHotspot = isWordInHotspot(index); // Re-enabled hotspot logic
 
             return (
                 <span
@@ -128,12 +130,12 @@ export function TranscriptViewer({
                     "cursor-pointer transition-colors duration-100 rounded-md px-0.5 py-0.5",
                     isSelected ? "bg-opacity-30" : "hover:bg-opacity-10",
                     isActive && "text-opacity-100",
-                    inHotspot && !isSelected && "bg-accent/20"
+                    inHotspot && !isSelected && "bg-yellow-200/50 dark:bg-yellow-800/50" // Example hotspot styling
                 )}
                 style={{
                     backgroundColor: isSelected
                         ? `${brandOptions.primaryColor}4D`
-                        : (inHotspot ? 'hsl(var(--accent))' : 'transparent'),
+                        : (inHotspot ? 'hsla(54, 96%, 72%, 0.5)' : 'transparent'), // More specific color for hotspot
                     color: isActive ? brandOptions.primaryColor : 'inherit',
                     fontWeight: isActive ? 'bold' : 'normal'
                 }}

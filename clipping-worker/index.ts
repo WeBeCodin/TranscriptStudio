@@ -1,8 +1,8 @@
-console.log('[GCF_CLIPPER_LOG] START: Loading clipping-worker/index.ts (v6 - Signed URL Fix)');
+console.log('[GCF_CLIPPER_LOG] START: Loading clipping-worker/index.ts (v6 - Dynamic Source Bucket & FFmpeg Fix)');
 
 import type { Request, Response } from 'express';
 import * as admin from 'firebase-admin';
-import { Bucket, GetSignedUrlConfig } from '@google-cloud/storage';
+import { Bucket } from '@google-cloud/storage';
 
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -15,7 +15,7 @@ console.log('[GCF_CLIPPER_LOG] STEP 1: Basic imports successful.');
 export type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
 let db: admin.firestore.Firestore;
-let defaultStorageBucket: Bucket;
+let defaultStorageBucket: Bucket; // This will be used for the UPLOAD destination
 const TARGET_BUCKET_NAME = 'transcript-studio-4drhv.appspot.com'; 
 
 try {
@@ -32,6 +32,7 @@ try {
   db = admin.firestore();
   console.log('[GCF_CLIPPER_LOG] STEP 4: Firestore instance obtained.');
 
+  // This sets the default bucket for UPLOADS
   defaultStorageBucket = admin.storage().bucket(TARGET_BUCKET_NAME);
   console.log(`[GCF_CLIPPER_LOG] STEP 5: Default upload storage bucket instance obtained for '${defaultStorageBucket.name}'.`);
 
@@ -93,6 +94,7 @@ export const videoClipperWorker = async (req: Request, res: Response): Promise<v
   const jobRef = db.collection("clippingJobs").doc(jobId);
   const uniqueTempDirName = `clipper_${jobId}_${Date.now()}`;
   const tempLocalDir = path.join(tmpdir(), uniqueTempDirName);
+  let localInputPath = '';
   let localOutputPath = '';
 
   try {
@@ -110,29 +112,29 @@ export const videoClipperWorker = async (req: Request, res: Response): Promise<v
     if (!gcsUriMatch) {
       throw new Error(`Invalid GCS URI format: ${gcsUri}. Expected gs://BUCKET_NAME/FILE_PATH`);
     }
+
+    // --- CONSULTANT'S FIX APPLIED HERE ---
     const sourceBucketName = gcsUriMatch[1];
     const gcsFilePath = gcsUriMatch[2];
-    
-    // Create a client for the specific bucket from the URI to generate the signed URL
     const sourceBucket = admin.storage().bucket(sourceBucketName);
-    const fileInBucket = sourceBucket.file(gcsFilePath);
+    // --- END OF FIX ---
 
-    const signedUrlConfig: GetSignedUrlConfig = {
-      action: 'read',
-      expires: Date.now() + 15 * 60 * 1000, // 15 minutes
-    };
-    const [signedUrl] = await fileInBucket.getSignedUrl(signedUrlConfig);
-    console.log(`[${jobId}] Generated signed URL for FFmpeg input.`);
+    const inputFileName = path.basename(gcsFilePath);
+    localInputPath = path.join(tempLocalDir, inputFileName);
     
-    const outputClipFileName = `clip_${path.basename(gcsFilePath)}`;
+    console.log(`[${jobId}] Downloading (file path: ${gcsFilePath}) from bucket ${sourceBucket.name} to ${localInputPath}...`);
+    await sourceBucket.file(gcsFilePath).download({ destination: localInputPath });
+    console.log(`[${jobId}] Downloaded ${inputFileName} successfully.`);
+
+    const outputClipFileName = `clip_${path.parse(inputFileName).name}.${outputFormat}`;
     localOutputPath = path.join(tempLocalDir, outputClipFileName);
     
     const duration = endTime - startTime;
     if (duration <= 0) {
         throw new Error(`Invalid duration calculated: ${duration}. endTime (${endTime}) must be greater than startTime (${startTime}).`);
     }
-    // FFmpeg now uses the public signed URL as input
-    const ffmpegCommand = `ffmpeg -y -hide_banner -i "${signedUrl}" -ss ${startTime} -t ${duration} "${localOutputPath}"`;
+    // Corrected FFmpeg command for accurate seeking
+    const ffmpegCommand = `ffmpeg -y -hide_banner -i "${localInputPath}" -ss ${startTime} -t ${duration} "${localOutputPath}"`;
     
     console.log(`[${jobId}] Executing FFmpeg: ${ffmpegCommand}`);
     
@@ -197,4 +199,4 @@ export const videoClipperWorker = async (req: Request, res: Response): Promise<v
     }
   }
 };
-console.log('[GCF_CLIPPER_LOG] END: videoClipperWorker function defined and exported. Script load complete. (v6 - Signed URL Fix)');
+console.log('[GCF_CLIPPER_LOG] END: videoClipperWorker function defined and exported. Script load complete. (v6 - Dynamic Source Bucket)');
