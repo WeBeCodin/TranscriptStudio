@@ -137,7 +137,10 @@ export function TranscriptViewer({
                         ? `${brandOptions.primaryColor}4D`
                         : (inHotspot ? 'hsla(54, 96%, 72%, 0.5)' : 'transparent'), // More specific color for hotspot
                     color: isActive ? brandOptions.primaryColor : 'inherit',
-                    fontWeight: isActive ? 'bold' : 'normal'
+                    fontWeight: isActive ? 'bold' : 'normal',
+                    textDecoration: inHotspot ? 'underline' : 'none',
+                    textDecorationColor: inHotspot ? 'hsl(var(--accent))' : 'transparent',
+                    textUnderlineOffset: '4px'
                 }}
                 >
                 {word.text}{' '}

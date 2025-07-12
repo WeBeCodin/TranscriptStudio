@@ -113,28 +113,29 @@ export const videoClipperWorker = async (req: Request, res: Response): Promise<v
       throw new Error(`Invalid GCS URI format: ${gcsUri}. Expected gs://BUCKET_NAME/FILE_PATH`);
     }
 
-    // --- CONSULTANT'S FIX APPLIED HERE ---
     const sourceBucketName = gcsUriMatch[1];
     const gcsFilePath = gcsUriMatch[2];
+
+    // Create a client for the specific bucket from the URI to generate the signed URL
     const sourceBucket = admin.storage().bucket(sourceBucketName);
-    // --- END OF FIX ---
+    const fileInBucket = sourceBucket.file(gcsFilePath);
 
-    const inputFileName = path.basename(gcsFilePath);
-    localInputPath = path.join(tempLocalDir, inputFileName);
+    const signedUrlConfig: GetSignedUrlConfig = {
+      action: 'read',
+      expires: Date.now() + 15 * 60 * 1000, // 15 minutes
+    };
+    const [signedUrl] = await fileInBucket.getSignedUrl(signedUrlConfig);
+    console.log(`[${jobId}] Generated signed URL for FFmpeg input.`);
     
-    console.log(`[${jobId}] Downloading (file path: ${gcsFilePath}) from bucket ${sourceBucket.name} to ${localInputPath}...`);
-    await sourceBucket.file(gcsFilePath).download({ destination: localInputPath });
-    console.log(`[${jobId}] Downloaded ${inputFileName} successfully.`);
-
-    const outputClipFileName = `clip_${path.parse(inputFileName).name}.${outputFormat}`;
+    const outputClipFileName = `clip_${path.basename(gcsFilePath)}`;
     localOutputPath = path.join(tempLocalDir, outputClipFileName);
     
     const duration = endTime - startTime;
     if (duration <= 0) {
         throw new Error(`Invalid duration calculated: ${duration}. endTime (${endTime}) must be greater than startTime (${startTime}).`);
     }
-    // Corrected FFmpeg command for accurate seeking
-    const ffmpegCommand = `ffmpeg -y -hide_banner -i "${localInputPath}" -ss ${startTime} -t ${duration} "${localOutputPath}"`;
+    // FFmpeg now uses the public signed URL as input
+    const ffmpegCommand = `ffmpeg -y -hide_banner -i "${signedUrl}" -ss ${startTime} -t ${duration} "${localOutputPath}"`;
     
     console.log(`[${jobId}] Executing FFmpeg: ${ffmpegCommand}`);
     
