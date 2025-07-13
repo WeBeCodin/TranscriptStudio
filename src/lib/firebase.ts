@@ -8,7 +8,7 @@ import { getFirestore } from 'firebase/firestore';
 // Find these values in your Firebase project settings under "General".
 const firebaseConfig = {
   apiKey: "AIzaSyDC5PpahjVXu4L8GPb9C04k0k78hq5IVkk",
-  authDomain: "transcript-studio-4drhv.firebasestorage.app",
+  authDomain: "transcript-studio-4drhv.firebaseapp.com",
   projectId: "transcript-studio-4drhv",
   storageBucket: "transcript-studio-4drhv.appspot.com",
   messagingSenderId: "371403164462",
