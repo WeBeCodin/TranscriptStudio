@@ -1,3 +1,4 @@
+// This is a comment to ensure the file is changed.
 import { initializeApp, getApps, getApp, FirebaseOptions } from 'firebase/app';
 import { getStorage } from 'firebase/storage';
 import { getFirestore } from 'firebase/firestore';
