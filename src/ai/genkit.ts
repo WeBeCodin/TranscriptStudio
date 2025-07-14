@@ -1,17 +1,21 @@
+import { configure, gemini } from '@genkit-ai/googleai';
 
-import {genkit} from 'genkit';
-import {googleAI} from '@genkit-ai/googleai';
+const googleApiKey = process.env.GOOGLE_API_KEY;
 
-// Correctly and securely access the server-side environment variable.
-const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
-
-// Add a server-side check to ensure the key is present.
-if (!GOOGLE_API_KEY) {
-  // This error will appear in the server logs, not the browser console.
+if (!googleApiKey) {
   throw new Error('Server configuration error: GOOGLE_API_KEY is not set in the environment.');
 }
 
-export const ai = genkit({
-  plugins: [googleAI({ apiKey: GOOGLE_API_KEY })],
-  model: 'googleai/gemini-2.0-flash',
+configure({
+  plugins: [
+    gemini({
+      apiKey: googleApiKey,
+    }),
+  ],
+  logLevel: 'debug',
+  enableTracingAndMetrics: true,
 });
+
+export _ from './flows/generate-transcript';
+export _ from './flows/suggest-hotspots';
+export _ from './flows/generate-video-background';
