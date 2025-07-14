@@ -1,24 +1,36 @@
-
-import { initializeApp, getApps, getApp } from 'firebase/app';
+import { initializeApp, getApps, getApp, FirebaseOptions } from 'firebase/app';
 import { getStorage } from 'firebase/storage';
 import { getFirestore } from 'firebase/firestore';
 
-// --- URGENT: PASTE YOUR FIREBASE CONFIGURATION HERE ---
-// This is a temporary but necessary workaround because the .env.local file is not being loaded.
-// Find these values in your Firebase project settings under "General".
-const firebaseConfig = {
-  apiKey: "AIzaSyDC5PpahjVXu4L8GPb9C04k0k78hq5IVkk",
-  authDomain: "transcript-studio-4drhv.firebaseapp.com",
-  projectId: "transcript-studio-4drhv",
-  storageBucket: "transcript-studio-4drhv.appspot.com",
-  messagingSenderId: "371403164462",
-  appId: "1:371403164462:web:1bac6e64e9f8e48d8308bf"
+// Construct the configuration object from environment variables.
+const firebaseConfig: FirebaseOptions = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
-// --- END OF CONFIGURATION SECTION ---
 
+// Runtime validation to ensure all required client-side variables are present.
+if (
+  !firebaseConfig.apiKey ||
+  !firebaseConfig.authDomain ||
+  !firebaseConfig.projectId ||
+  !firebaseConfig.storageBucket
+) {
+  throw new Error(
+    'Firebase configuration is missing or incomplete. Please check your .env.local file and ensure all NEXT_PUBLIC_FIREBASE_* variables are set correctly.'
+  );
+}
 
 // Initialize Firebase App safely, preventing re-initialization on hot reloads.
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+let app;
+if (!getApps().length) {
+  app = initializeApp(firebaseConfig);
+} else {
+  app = getApp();
+}
 
 const storage = getStorage(app);
 const db = getFirestore(app);
