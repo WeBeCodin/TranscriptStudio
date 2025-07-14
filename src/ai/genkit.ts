@@ -1,4 +1,5 @@
-import { configure, gemini } from '@genkit-ai/googleai';
+import { genkit } from 'genkit';
+import { googleAI } from '@genkit-ai/googleai';
 
 const googleApiKey = process.env.GOOGLE_API_KEY;
 
@@ -6,9 +7,9 @@ if (!googleApiKey) {
   throw new Error('Server configuration error: GOOGLE_API_KEY is not set in the environment.');
 }
 
-configure({
+genkit.configure({
   plugins: [
-    gemini({
+    googleAI({
       apiKey: googleApiKey,
     }),
   ],
@@ -16,6 +17,6 @@ configure({
   enableTracingAndMetrics: true,
 });
 
-export _ from './flows/generate-transcript';
-export _ from './flows/suggest-hotspots';
-export _ from './flows/generate-video-background';
+export * from './flows/generate-transcript';
+export * from './flows/suggest-hotspots';
+export * from './flows/generate-video-background';
