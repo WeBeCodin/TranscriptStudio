@@ -1,4 +1,3 @@
-// This is a comment to ensure the file is changed.
 import { genkit } from 'genkit';
 import { googleAI } from '@genkit-ai/googleai';
 
@@ -8,14 +7,12 @@ if (!googleApiKey) {
   throw new Error('Server configuration error: GOOGLE_API_KEY is not set in the environment.');
 }
 
-genkit.configure({
+genkit({
   plugins: [
     googleAI({
       apiKey: googleApiKey,
     }),
   ],
-  logLevel: 'debug',
-  enableTracingAndMetrics: true,
 });
 
 export * from './flows/generate-transcript';
