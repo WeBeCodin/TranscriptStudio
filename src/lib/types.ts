@@ -1,13 +1,29 @@
 // src/lib/types.ts
 
-import type { GenerateTranscriptOutput as OriginalGenerateTranscriptOutput } from '@/ai/flows/generate-transcript';
-import type { SuggestHotspotsOutput as OriginalSuggestHotspotsOutput } from '@/ai/flows/suggest-hotspots';
+// --- AI Flow Output Types (based on Gemini functions) ---
 
-// --- Re-exported AI Flow Output Types ---
-export type GenerateTranscriptOutput = OriginalGenerateTranscriptOutput;
-export type SuggestHotspotsOutput = OriginalSuggestHotspotsOutput;
+// Output of generateTranscript
+export type GenerateTranscriptOutput = {
+  transcript: Transcript;
+  // You can add additional fields if your Gemini output includes them
+};
+
+// Output of suggestHotspots
+export type Hotspot = {
+  start_time: number;   // seconds, or string if that's the Gemini format
+  end_time: number;     // seconds, or string if that's the Gemini format
+  title: string;
+  reason: string;
+};
+export type SuggestHotspotsOutput = Hotspot[];
+
+// Output of generateVideoBackground
+export type GenerateVideoBackgroundOutput = {
+  backgroundDataUri: string; // e.g., "data:image/png;base64,..."
+};
 
 // --- Core Transcript Structure ---
+
 export interface Word {
   text: string;
   start: number; // seconds
@@ -21,11 +37,8 @@ export interface Transcript {
   words: Word[];
 }
 
-// --- Hotspot Structure ---
-// Assuming SuggestHotspotsOutput from your Genkit flow is an array of objects directly:
-export type Hotspot = OriginalSuggestHotspotsOutput[0]; 
-
 // --- UI and Editor Specific Types ---
+
 export interface BrandOptions {
   logo?: string; 
   primaryColor: string;
@@ -38,6 +51,7 @@ export interface Selection {
 }
 
 // --- Job Management Types ---
+
 export type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
 export interface TranscriptionJob {

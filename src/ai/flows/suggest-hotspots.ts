@@ -1,56 +1,22 @@
-'use server';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
-/**
- * @fileOverview Suggests potential 'hotspots' in a video transcript for repurposing.
- *
- * - suggestHotspots - A function that takes a transcript and returns suggested sections.
- * - SuggestHotspotsInput - The input type for the suggestHotspots function.
- * - SuggestHotspotsOutput - The return type for the suggestHotspots function.
- */
+// Input: { transcript: string }
+export async function suggestHotspots({ transcript }: { transcript: string }) {
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+  const prompt = `You are an expert social media video editor. Analyze the following transcript and identify 3-5 "hotspots" or compelling segments that would make great short-form video clips. For each hotspot, provide a start time, end time, a catchy title, and a brief reason.
 
-const SuggestHotspotsInputSchema = z.object({
-  transcript: z
-    .string()
-    .describe('The transcript of the video to analyze.'),
-});
-export type SuggestHotspotsInput = z.infer<typeof SuggestHotspotsInputSchema>;
+Transcript:
+${transcript}
 
-const SuggestHotspotsOutputSchema = z.array(z.object({
-  startIndex: z.number().describe('The start index of the suggested section in the transcript.'),
-  endIndex: z.number().describe('The end index of the suggested section in the transcript.'),
-  reason: z.string().describe('The reason why this section is suggested as a hotspot.'),
-}));
-export type SuggestHotspotsOutput = z.infer<typeof SuggestHotspotsOutputSchema>;
+Please output a valid JSON array, where each object has: start_time, end_time, title, reason.`;
 
-export async function suggestHotspots(input: SuggestHotspotsInput): Promise<SuggestHotspotsOutput> {
-  return suggestHotspotsFlow(input);
-}
+  const result = await model.generateContent(prompt);
 
-const prompt = ai.definePrompt({
-  name: 'suggestHotspotsPrompt',
-  input: {schema: SuggestHotspotsInputSchema},
-  output: {schema: SuggestHotspotsOutputSchema},
-  prompt: `You are an AI assistant helping content creators find interesting sections in their video transcripts.
-
-  Given the following transcript, identify sections that are likely to be engaging or important for repurposing into short-form content.
-
-  Return an array of objects, where each object contains the start and end index of the suggested section in the transcript, and a brief reason for the suggestion.
-
-  Transcript:
-  {{transcript}}`,
-});
-
-const suggestHotspotsFlow = ai.defineFlow(
-  {
-    name: 'suggestHotspotsFlow',
-    inputSchema: SuggestHotspotsInputSchema,
-    outputSchema: SuggestHotspotsOutputSchema,
-  },
-  async input => {
-    const {output} = await prompt(input);
-    return output!;
+  try {
+    return JSON.parse(result.response.text());
+  } catch {
+    return result.response.text();
   }
-);
+}

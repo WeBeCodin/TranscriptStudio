@@ -87,7 +87,7 @@ export function TranscriptViewer({
         if(words[i]) charIndex += (words[i].text.length + 1);
     }
     // This logic assumes hotspots are character index based. It might need adjustment
-    // depending on the precise output of your suggestHotspotsAction Genkit flow.
+    // depending on the precise output of your suggestHotspotsAction Gemini.
     return hotspots.some(h => charIndex >= h.startIndex && charIndex < (h.endIndex + words[wordIndex].text.length) );
   };
 

@@ -9,7 +9,6 @@ import { collection, doc, setDoc, serverTimestamp, getDoc } from 'firebase/fires
 import type { TranscriptionJob, ClippingJob, JobStatus, Transcript } from '@/lib/types';
 import { v4 as uuidv4 } from 'uuid';
 
-// Consistent return type for all actions
 export type ActionResult<TData = null> = {
   success: boolean;
   data?: TData;
@@ -18,22 +17,24 @@ export type ActionResult<TData = null> = {
   debugMessage?: string;
 };
 
-// This original GCS-based transcription action might be deprecated or used as a fallback.
-export async function generateTranscriptFromGcsAction(input: GenerateTranscriptInput): Promise<ActionResult<GenerateTranscriptOutput>> {
-  console.log('[ACTIONS.TS] generateTranscriptFromGcsAction (Genkit Flow) called. Input:', input);
+// Generates a transcript from GCS (uses Gemini, not Genkit)
+export async function generateTranscriptFromGcsAction(
+  input: GenerateTranscriptInput
+): Promise<ActionResult<GenerateTranscriptOutput>> {
+  console.log('[ACTIONS.TS] generateTranscriptFromGcsAction called. Input:', input);
   try {
     const transcriptOutput = await generateTranscript(input);
     return {
       success: true,
       data: transcriptOutput,
-      debugMessage: "[ACTIONS.TS] generateTranscriptFromGcsAction: Success via Genkit flow."
+      debugMessage: "[ACTIONS.TS] generateTranscriptFromGcsAction: Success."
     };
   } catch (error: any) {
-    console.error('[ACTIONS.TS] Critical error in generateTranscriptFromGcsAction (Genkit Flow). Full error:', error);
+    console.error('[ACTIONS.TS] Critical error in generateTranscriptFromGcsAction:', error);
     return {
       success: false,
-      error: `AI transcript generation via Genkit flow failed: ${error.message || 'Unknown error'}`,
-      debugMessage: `[ACTIONS.TS] generateTranscriptFromGcsAction (Genkit Flow): FAILED - ${error.message}`
+      error: `AI transcript generation failed: ${error.message || 'Unknown error'}`,
+      debugMessage: `[ACTIONS.TS] generateTranscriptFromGcsAction: FAILED - ${error.message}`
     };
   }
 }
@@ -60,11 +61,10 @@ export async function requestTranscriptionAction(input: RequestTranscriptionInpu
   return { success: true, jobId: input.jobId }; // Example success response
 }
 
-
 export async function getTranscriptionJobAction(jobId: string): Promise<ActionResult<TranscriptionJob | null>> {
   console.log(`[ACTIONS.TS][${jobId}] getTranscriptionJobAction called.`);
   if (!jobId) {
-     return { success: false, error: "Job ID is required.", debugMessage: "[ACTIONS.TS] getTranscriptionJobAction: No Job ID provided." };
+    return { success: false, error: "Job ID is required.", debugMessage: "[ACTIONS.TS] getTranscriptionJobAction: No Job ID provided." };
   }
   try {
     const jobRef = doc(db, "transcriptionJobs", jobId);
@@ -102,52 +102,54 @@ export async function suggestHotspotsAction(input: SuggestHotspotsInput): Promis
   try {
     const hotspotsData = await suggestHotspots(input);
     if (!hotspotsData || hotspotsData.length === 0) {
-        return {
-          success: true,
-          data: [] as SuggestHotspotsOutput,
-          debugMessage: "[ACTIONS.TS] suggestHotspotsAction: Flow returned no hotspots or empty data."
-        };
+      return {
+        success: true,
+        data: [] as SuggestHotspotsOutput,
+        debugMessage: "[ACTIONS.TS] suggestHotspotsAction: No hotspots or empty data."
+      };
     }
     return { success: true, data: hotspotsData, debugMessage: "[ACTIONS.TS] suggestHotspotsAction: Success, hotspots found." };
   } catch (error: any) {
-    console.error('[ACTIONS.TS] Error in suggestHotspotsAction Genkit flow:', error.message, error.stack);
+    console.error('[ACTIONS.TS] Error in suggestHotspotsAction:', error.message, error.stack);
     return {
       success: false,
-      error: error.message || 'Failed to suggest hotspots due to an AI flow error.',
+      error: error.message || 'Failed to suggest hotspots due to an AI error.',
       data: [] as SuggestHotspotsOutput,
       debugMessage: `[ACTIONS.TS] suggestHotspotsAction: FAILED - ${error.message}`
     };
   }
 }
 
-export async function generateVideoBackgroundAction(input: GenerateVideoBackgroundInput): Promise<ActionResult<{ backgroundDataUri: string }>> {
-    console.log('[ACTIONS.TS] generateVideoBackgroundAction called.');
-    let flowResultPayload;
-    try {
-      flowResultPayload = await generateVideoBackground(input);
-      if (flowResultPayload && typeof flowResultPayload.backgroundDataUri === 'string' && flowResultPayload.backgroundDataUri.startsWith('data:image/')) {
-        return {
-          success: true,
-          data: flowResultPayload,
-          debugMessage: "[ACTIONS.TS] generateVideoBackgroundAction: Flow success, valid data URI."
-        };
-      } else {
-        console.error('[ACTIONS.TS] generateVideoBackgroundAction: Flow returned invalid or missing data URI:', flowResultPayload);
-        return {
-          success: false,
-          error: 'AI background generation flow did not return a valid image data URI.',
-          debugMessage: `[ACTIONS.TS] generateVideoBackgroundAction: Flow returned unexpected data: ${JSON.stringify(flowResultPayload)}`
-        };
-      }
-    } catch (error: any) {
-      const errorMessage = error.message || 'Unknown error in generateVideoBackground Genkit flow.';
-      console.error('[ACTIONS.TS] generateVideoBackgroundAction: FAILED in Genkit flow call.', error.message, error.stack);
+export async function generateVideoBackgroundAction(
+  input: GenerateVideoBackgroundInput
+): Promise<ActionResult<{ backgroundDataUri: string }>> {
+  console.log('[ACTIONS.TS] generateVideoBackgroundAction called.');
+  let bgResult;
+  try {
+    bgResult = await generateVideoBackground(input);
+    if (bgResult && typeof bgResult.backgroundDataUri === 'string' && bgResult.backgroundDataUri.startsWith('data:image/')) {
+      return {
+        success: true,
+        data: bgResult,
+        debugMessage: "[ACTIONS.TS] generateVideoBackgroundAction: Success, valid data URI."
+      };
+    } else {
+      console.error('[ACTIONS.TS] generateVideoBackgroundAction: Invalid or missing data URI:', bgResult);
       return {
         success: false,
-        error: errorMessage,
-        debugMessage: `[ACTIONS.TS] generateVideoBackgroundAction: FAILED in flow call. Error: ${errorMessage}. FlowResult (if any): ${JSON.stringify(flowResultPayload)}`
+        error: 'Background generation did not return a valid image data URI.',
+        debugMessage: `[ACTIONS.TS] generateVideoBackgroundAction: Unexpected data: ${JSON.stringify(bgResult)}`
       };
     }
+  } catch (error: any) {
+    const errorMessage = error.message || 'Unknown error in generateVideoBackground.';
+    console.error('[ACTIONS.TS] generateVideoBackgroundAction: FAILED.', error.message, error.stack);
+    return {
+      success: false,
+      error: errorMessage,
+      debugMessage: `[ACTIONS.TS] generateVideoBackgroundAction: FAILED. Error: ${errorMessage}. bgResult: ${JSON.stringify(bgResult)}`
+    };
+  }
 }
 
 interface RequestVideoClipInput {
@@ -212,23 +214,23 @@ export async function requestVideoClipAction(
       body: JSON.stringify({ jobId, gcsUri, startTime, endTime, outputFormat }),
       headers: { 'Content-Type': 'application/json' },
     })
-    .then(response => {
-      if (!response.ok) {
-        response.text().then(text => {
-          console.error(`[ACTIONS.TS][${jobId}] ERROR triggering GCF Clipper. Status: ${response.status}. Body: ${text}`);
-        });
-      } else {
-        console.log(`[ACTIONS.TS][${jobId}] Successfully sent trigger to GCF Clipper (HTTP call successful).`);
-      }
-    })
-    .catch(triggerError => {
-      console.error(`[ACTIONS.TS][${jobId}] NETWORK_ERROR or other issue triggering GCF Clipper:`, triggerError);
-    });
+      .then(response => {
+        if (!response.ok) {
+          response.text().then(text => {
+            console.error(`[ACTIONS.TS][${jobId}] ERROR triggering GCF Clipper. Status: ${response.status}. Body: ${text}`);
+          });
+        } else {
+          console.log(`[ACTIONS.TS][${jobId}] Successfully sent trigger to GCF Clipper (HTTP call successful).`);
+        }
+      })
+      .catch(triggerError => {
+        console.error(`[ACTIONS.TS][${jobId}] NETWORK_ERROR or other issue triggering GCF Clipper:`, triggerError);
+      });
 
     return {
-        success: true,
-        jobId,
-        debugMessage: `[ACTIONS.TS][${jobId}] requestVideoClipAction: Successfully initiated job and sent trigger to GCF Clipper.`
+      success: true,
+      jobId,
+      debugMessage: `[ACTIONS.TS][${jobId}] requestVideoClipAction: Successfully initiated job and sent trigger to GCF Clipper.`
     };
   } catch (error: any) {
     console.error(`[ACTIONS.TS][${jobId}] CATCH_ERROR in requestVideoClipAction (likely Firestore setDoc):`, error.message, error.stack);
