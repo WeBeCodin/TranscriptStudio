@@ -1,70 +1,58 @@
 'use server';
 
-/**
- * @fileOverview Generates a time-coded transcript of a video or audio file from Google Cloud Storage.
- *
- * - generateTranscript - A function that handles the transcript generation process.
- * - GenerateTranscriptInput - The input type for the generateTranscript function.
- * - GenerateTranscriptOutput - The return type for the generateTranscript function.
- */
+import { defineFlow, runFlow } from '@genkit-ai/flow';
+import { generate } from '@genkit-ai/ai';
+import { z } from 'zod';
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
-
+// Input schema
 const GenerateTranscriptInputSchema = z.object({
   gcsUri: z.string().describe('The Google Cloud Storage URI of the video file (e.g., gs://bucket-name/file-name).'),
 });
-
 export type GenerateTranscriptInput = z.infer<typeof GenerateTranscriptInputSchema>;
 
+// Output schema
 const WordSchema = z.object({
-  text: z.string().describe('The transcribed word.'),
-  start: z.number().describe('Start time of the word in seconds.'),
-  end: z.number().describe('End time of the word in seconds.'),
-  speaker: z.number().optional().describe('Speaker ID (e.g., 0, 1).'),
+  text: z.string(),
+  start: z.number(),
+  end: z.number(),
+  speaker: z.number().optional(),
 });
-
 const GenerateTranscriptOutputSchema = z.object({
-  words: z.array(WordSchema).describe('An array of word objects with timestamps.'),
+  words: z.array(WordSchema),
 });
-
 export type GenerateTranscriptOutput = z.infer<typeof GenerateTranscriptOutputSchema>;
 
-export async function generateTranscript(input: GenerateTranscriptInput): Promise<GenerateTranscriptOutput> {
-  return generateTranscriptFlow(input);
-}
-
-const generateTranscriptFlow = ai.defineFlow(
+// Flow definition
+export const generateTranscriptFlow = defineFlow(
   {
     name: 'generateTranscriptFlow',
     inputSchema: GenerateTranscriptInputSchema,
     outputSchema: GenerateTranscriptOutputSchema,
   },
-  async input => {
-    const {output} = await ai.generate({
-        // Switching to a faster, more cost-effective model less likely to have access issues.
-        model: 'googleai/gemini-1.5-flash',
-        prompt: [
-            { text: `You are an expert transcriptionist. Your task is to generate a precise, time-coded transcript from the provided media file.
+  async (input: GenerateTranscriptInput): Promise<GenerateTranscriptOutput> => {
+    const { output } = await generate({
+      model: 'googleai/gemini-1.5-flash',
+      prompt: [
+        { text: `You are an expert transcriptionist. Your task is to generate a precise, time-coded transcript from the provided media file.
 
 - Identify different speakers and assign a unique speaker ID to each one (e.g., 0, 1, 2).
-- Analyze the media file and return a structured transcript with an array of word objects. 
+- Analyze the media file and return a structured transcript with an array of word objects.
 - Each object must contain the word's text, its start and end time in seconds, and the corresponding speaker ID.
 
 The output MUST be a valid JSON object that adheres to the provided schema. Do not include any markdown formatting like \`\`\`json.` },
-            { media: { uri: input.gcsUri } }
-        ],
-        output: {
-            format: 'json',
-            schema: GenerateTranscriptOutputSchema,
-        }
-    });
-    
-    if (!output) {
-        throw new Error(
-            'The AI model failed to generate a valid transcript. This might be due to an issue with the media file or a temporary model problem. Please try again with a different video.'
-        );
-    }
+        { media: { uri: input.gcsUri } }
+      ],
+      output: {
+        format: 'json',
+        schema: GenerateTranscriptOutputSchema,
+      }
+    }, {}); // <-- Genkit v1.14.x+ requires two arguments
+
+    if (!output) throw new Error('Failed to generate transcript');
     return output;
   }
 );
+
+export async function generateTranscript(input: GenerateTranscriptInput): Promise<GenerateTranscriptOutput> {
+  return runFlow(generateTranscriptFlow, input);
+}

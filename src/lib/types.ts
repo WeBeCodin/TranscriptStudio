@@ -1,69 +1,65 @@
-// src/lib/types.ts
+import { z } from 'zod';
 
-import type { GenerateTranscriptOutput as OriginalGenerateTranscriptOutput } from '@/ai/flows/generate-transcript';
-import type { SuggestHotspotsOutput as OriginalSuggestHotspotsOutput } from '@/ai/flows/suggest-hotspots';
+// Schema for generating a transcript
+export const GenerateTranscriptInputSchema = z.object({
+  gcsUri: z.string().describe('The Google Cloud Storage URI of the video file (e.g., gs://bucket-name/file-name).'),
+});
+export type GenerateTranscriptInput = z.infer<typeof GenerateTranscriptInputSchema>;
 
-// --- Re-exported AI Flow Output Types ---
-export type GenerateTranscriptOutput = OriginalGenerateTranscriptOutput;
-export type SuggestHotspotsOutput = OriginalSuggestHotspotsOutput;
+const WordSchema = z.object({
+  text: z.string().describe('The transcribed word.'),
+  start: z.number().describe('Start time of the word in seconds.'),
+  end: z.number().describe('End time of the word in seconds.'),
+  speaker: z.number().optional().describe('Speaker ID (e.g., 0, 1).'),
+});
 
-// --- Core Transcript Structure ---
-export interface Word {
-  text: string;
-  start: number; // seconds
-  end: number;   // seconds
-  confidence?: number;
-  speaker?: number; // Speaker ID from diarization
-  punctuated_word?: string; // Word with punctuation, if available
-}
+export const GenerateTranscriptOutputSchema = z.object({
+  words: z.array(WordSchema).describe('An array of word objects with timestamps.'),
+});
+export type GenerateTranscriptOutput = z.infer<typeof GenerateTranscriptOutputSchema>;
 
-export interface Transcript {
-  words: Word[];
-}
 
-// --- Hotspot Structure ---
-// Assuming SuggestHotspotsOutput from your Genkit flow is an array of objects directly:
-export type Hotspot = OriginalSuggestHotspotsOutput[0]; 
+// Schema for suggesting hotspots
+export const SuggestHotspotsInputSchema = z.object({
+  transcript: z.string().describe('The full transcript text of the video.'),
+});
+export type SuggestHotspotsInput = z.infer<typeof SuggestHotspotsInputSchema>;
 
-// --- UI and Editor Specific Types ---
+const HotspotSchema = z.object({
+  start_time: z.number().describe('The start time of the suggested clip in seconds.'),
+  end_time: z.number().describe('The end time of the suggested clip in seconds.'),
+  title: z.string().describe('A catchy, short title for the clip.'),
+  reason: z.string().describe('A brief explanation of why this segment is a good clip.'),
+});
+
+export const SuggestHotspotsOutputSchema = z.array(HotspotSchema);
+export type SuggestHotspotsOutput = z.infer<typeof SuggestHotspotsOutputSchema>;
+
+
+// General application types
+export type Word = z.infer<typeof WordSchema>;
+export type Transcript = GenerateTranscriptOutput;
+export type Hotspot = z.infer<typeof HotspotSchema>;
+
 export interface BrandOptions {
-  logo?: string; 
+  logo?: string; // data URL for the logo
   primaryColor: string;
-  font: 'Inter' | 'Space Grotesk' | string; 
+  font: 'Inter' | 'Space Grotesk';
 }
 
 export interface Selection {
-  start: number; // in seconds
-  end: number;   // in seconds
+  start: number;
+  end: number;
 }
 
-// --- Job Management Types ---
 export type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
 export interface TranscriptionJob {
-  id: string; 
-  gcsUri: string; 
+  id: string;
+  gcsUri: string;
   status: JobStatus;
   createdAt: any; 
   updatedAt: any; 
-  transcript?: Transcript; 
-  error?: string; 
-  workerStartedAt?: any; 
-  workerCompletedAt?: any; 
-}
-
-export interface ClippingJob {
-  id: string; 
-  userId?: string; 
-  sourceVideoGcsUri: string; 
-  startTime: number; 
-  endTime: number;   
-  status: JobStatus; 
-  outputFormat?: string; 
-  createdAt: any; 
-  updatedAt: any; 
-  clippedVideoGcsUri?: string; 
-  error?: string; 
-  workerStartedAt?: any; 
-  workerCompletedAt?: any; 
+  transcript?: Transcript;
+  error?: string;
 }

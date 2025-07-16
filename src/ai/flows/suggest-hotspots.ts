@@ -1,56 +1,52 @@
 'use server';
 
-/**
- * @fileOverview Suggests potential 'hotspots' in a video transcript for repurposing.
- *
- * - suggestHotspots - A function that takes a transcript and returns suggested sections.
- * - SuggestHotspotsInput - The input type for the suggestHotspots function.
- * - SuggestHotspotsOutput - The return type for the suggestHotspots function.
- */
+import { defineFlow, runFlow } from '@genkit-ai/flow';
+import { generate } from '@genkit-ai/ai';
+import { z } from 'zod';
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
-
+// Input schema
 const SuggestHotspotsInputSchema = z.object({
-  transcript: z
-    .string()
-    .describe('The transcript of the video to analyze.'),
+  transcript: z.string().describe('The full transcript text of the video.'),
 });
 export type SuggestHotspotsInput = z.infer<typeof SuggestHotspotsInputSchema>;
 
-const SuggestHotspotsOutputSchema = z.array(z.object({
-  startIndex: z.number().describe('The start index of the suggested section in the transcript.'),
-  endIndex: z.number().describe('The end index of the suggested section in the transcript.'),
-  reason: z.string().describe('The reason why this section is suggested as a hotspot.'),
-}));
+// Output schema
+const HotspotSchema = z.object({
+  start_time: z.number(),
+  end_time: z.number(),
+  title: z.string(),
+  reason: z.string(),
+});
+const SuggestHotspotsOutputSchema = z.array(HotspotSchema);
 export type SuggestHotspotsOutput = z.infer<typeof SuggestHotspotsOutputSchema>;
 
-export async function suggestHotspots(input: SuggestHotspotsInput): Promise<SuggestHotspotsOutput> {
-  return suggestHotspotsFlow(input);
-}
-
-const prompt = ai.definePrompt({
-  name: 'suggestHotspotsPrompt',
-  input: {schema: SuggestHotspotsInputSchema},
-  output: {schema: SuggestHotspotsOutputSchema},
-  prompt: `You are an AI assistant helping content creators find interesting sections in their video transcripts.
-
-  Given the following transcript, identify sections that are likely to be engaging or important for repurposing into short-form content.
-
-  Return an array of objects, where each object contains the start and end index of the suggested section in the transcript, and a brief reason for the suggestion.
-
-  Transcript:
-  {{transcript}}`,
-});
-
-const suggestHotspotsFlow = ai.defineFlow(
+// Flow definition
+export const suggestHotspotsFlow = defineFlow(
   {
     name: 'suggestHotspotsFlow',
     inputSchema: SuggestHotspotsInputSchema,
     outputSchema: SuggestHotspotsOutputSchema,
   },
-  async input => {
-    const {output} = await prompt(input);
-    return output!;
+  async (input: SuggestHotspotsInput): Promise<SuggestHotspotsOutput> => {
+    const { output } = await generate({
+      model: 'googleai/gemini-1.5-flash',
+      prompt: [
+        { text:
+          `You are an expert social media video editor. Analyze the following transcript and identify 3-5 "hotspots" or compelling segments that would make great short-form video clips. For each hotspot, provide a start time, end time, a catchy title, and a brief reason.
+
+Transcript:
+${input.transcript}` }
+      ],
+      output: {
+        format: 'json',
+        schema: SuggestHotspotsOutputSchema,
+      }
+    }, {}); // <-- Second argument is required
+
+    return output || [];
   }
 );
+
+export async function suggestHotspots(input: SuggestHotspotsInput): Promise<SuggestHotspotsOutput> {
+  return runFlow(suggestHotspotsFlow, input);
+}

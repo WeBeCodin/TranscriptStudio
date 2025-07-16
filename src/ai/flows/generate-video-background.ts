@@ -1,55 +1,46 @@
 'use server';
-/**
- * @fileOverview Generates a background for a video frame.
- *
- * - generateVideoBackground - A function that handles the background generation process.
- * - GenerateVideoBackgroundInput - The input type for the function.
- * - GenerateVideoBackgroundOutput - The return type for the function.
- */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { defineFlow, runFlow } from '@genkit-ai/flow';
+import { generate } from '@genkit-ai/ai';
+import { z } from 'zod';
 
+// Input schema
 const GenerateVideoBackgroundInputSchema = z.object({
-  frameDataUri: z
-    .string()
-    .describe(
-      "A single video frame, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
-    ),
+  imageUrl: z.string().url().describe('A data URL of a single frame from the video.'),
 });
 export type GenerateVideoBackgroundInput = z.infer<typeof GenerateVideoBackgroundInputSchema>;
 
+// Output schema
 const GenerateVideoBackgroundOutputSchema = z.object({
-  backgroundDataUri: z.string().describe("The generated background image as a data URI."),
+  generatedImageUrl: z.string().url().describe('A data URL of the generated background image.'),
 });
 export type GenerateVideoBackgroundOutput = z.infer<typeof GenerateVideoBackgroundOutputSchema>;
 
-export async function generateVideoBackground(input: GenerateVideoBackgroundInput): Promise<GenerateVideoBackgroundOutput> {
-  return generateVideoBackgroundFlow(input);
-}
-
-const generateVideoBackgroundFlow = ai.defineFlow(
+// Flow definition
+export const generateVideoBackgroundFlow = defineFlow(
   {
     name: 'generateVideoBackgroundFlow',
     inputSchema: GenerateVideoBackgroundInputSchema,
     outputSchema: GenerateVideoBackgroundOutputSchema,
   },
-  async input => {
-    const {media} = await ai.generate({
-      model: 'googleai/gemini-2.0-flash-preview-image-generation',
+  async (input: GenerateVideoBackgroundInput): Promise<GenerateVideoBackgroundOutput> => {
+    const { output } = await generate({
+      model: 'googleai/gemini-1.5-flash',
       prompt: [
-        {media: {url: input.frameDataUri}},
-        {text: 'Extend the top and bottom of this image with a background that seamlessly matches the existing content, creating a complete image with a 9:16 portrait aspect ratio. Do not alter the original image content.'},
+        { text: "Analyze this video frame and generate a clean, high-resolution background image. The background should be contextually appropriate but without any people, text, or distracting foreground elements. The goal is to create a simple, aesthetically pleasing background that could be used behind text or other graphics." },
+        { media: { dataUrl: input.imageUrl } }
       ],
-      config: {
-        responseModalities: ['TEXT', 'IMAGE'],
+      output: {
+        format: 'json',
+        schema: GenerateVideoBackgroundOutputSchema,
       },
-    });
+    }, {}); // <-- Second argument is required
 
-    if (!media?.url) {
-        throw new Error('Image generation failed to return a valid image.');
-    }
-
-    return { backgroundDataUri: media.url };
+    if (!output) throw new Error('Failed to generate background image');
+    return output;
   }
 );
+
+export async function generateVideoBackground(input: GenerateVideoBackgroundInput): Promise<GenerateVideoBackgroundOutput> {
+  return runFlow(generateVideoBackgroundFlow, input);
+}
